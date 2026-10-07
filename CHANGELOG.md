@@ -7,6 +7,12 @@ All notable changes to meowcaller, tracked per module. Format loosely follows
 
 ## [Unreleased]
 
+### build — `implemented`
+
+- Tracks `go.mau.fi/whatsmeow` again instead of the
+  `github.com/polymorfa/hypermeow` fork: every import and `go.mod` go back to
+  upstream whatsmeow's `main`. Build, vet and the full test suite pass.
+
 ### meowcaller — start inbound media on the offer so a late Answer keeps inbound audio
 - The relay only bridged the caller's audio when our allocation followed the offer
   closely; answering a 1:1 call after ~2 s left it with outbound audio only (related

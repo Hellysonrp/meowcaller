@@ -3,7 +3,7 @@ package meowcaller
 import (
 	"testing"
 
-	waBinary "github.com/polymorfa/hypermeow/binary"
+	waBinary "go.mau.fi/whatsmeow/binary"
 )
 
 func testEngineWithIncomingCall() (*engine, *Call, *int) {
