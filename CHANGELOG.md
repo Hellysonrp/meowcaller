@@ -7,6 +7,12 @@ All notable changes to meowcaller, tracked per module. Format loosely follows
 
 ## [Unreleased]
 
+### engine/outgoing-reject — `planned`
+
+- Added the `UNMAPPED` datasheet for upstream issue #25: an outgoing 1:1 call
+  ends on a reject only from the callee's device 0 or from a device that
+  preaccepted it.
+
 ### engine/media-handoff — `implemented`
 
 - Added the `UNMAPPED` datasheet: a client built with `WithMediaHandoff` hands
