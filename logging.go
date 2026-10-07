@@ -5,13 +5,15 @@ import (
 	"github.com/rs/zerolog"
 )
 
-// Option configures optional, non-behavioral aspects of the call/media types —
-// currently the diagnostic logger. The zero configuration logs nothing.
+// Option configures optional aspects of the call/media types: the diagnostic logger
+// and recorder, and a Client's media handoff. The zero configuration logs nothing and
+// runs media locally.
 type Option func(*config)
 
 type config struct {
-	log  zerolog.Logger
-	diag *diag.Recorder
+	log          zerolog.Logger
+	diag         *diag.Recorder
+	mediaHandoff MediaHandoff
 }
 
 func resolveConfig(opts []Option) config {

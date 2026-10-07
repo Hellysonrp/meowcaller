@@ -24,6 +24,8 @@ type Client struct {
 	diag *diag.Recorder
 	eng  *engine
 
+	mediaHandoff MediaHandoff
+
 	getGroupInfo func(context.Context, types.JID) (*types.GroupInfo, error)
 	ownGroupJIDs func() []types.JID
 

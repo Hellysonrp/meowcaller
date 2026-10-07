@@ -7,11 +7,14 @@ All notable changes to meowcaller, tracked per module. Format loosely follows
 
 ## [Unreleased]
 
-### engine/media-handoff — `planned`
+### engine/media-handoff — `scaffolded`
 
 - Added the `UNMAPPED` datasheet: a client built with `WithMediaHandoff` hands
   each 1:1 call's media session to a `MediaHandoff` instead of running it, and
   `RunMedia` runs a handed-off session with no WhatsApp client.
+- Scaffolded `MediaHandoff`, `MediaSession` and its relay types,
+  `WithMediaHandoff`, the session conversion, `RunMedia` and `MediaCall`; their
+  tests are wired and skipped until the bodies land.
 
 ### build — `implemented`
 
