@@ -7,10 +7,12 @@ All notable changes to meowcaller, tracked per module. Format loosely follows
 
 ## [Unreleased]
 
-### engine/relay-timeout — `planned`
+### engine/relay-timeout — `scaffolded`
 
 - Added the `UNMAPPED` datasheet: `WithRelayTimeout(d)` ends a call's media
   when the relay sends nothing for `d`, with `ErrRelayTimeout`.
+- Scaffolded `WithRelayTimeout`, `ErrRelayTimeout`, the `relayTimeout` fields
+  and `watchRelay`; their tests are wired and skipped until the bodies land.
 
 ### engine/accept-sent — `implemented`
 

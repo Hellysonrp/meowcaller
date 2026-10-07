@@ -1590,3 +1590,12 @@ func (e *engine) onFirstInboundRTP(callID string, call *Call) {
 		}
 	}
 }
+
+// watchRelay calls expired once when rx has not moved for timeout, checking every tick,
+// and returns when ctx ends.
+func watchRelay(ctx context.Context, rx *atomic.Uint64, timeout, tick time.Duration, expired func()) {
+	// Source of truth: https://github.com/Hellysonrp/meowcaller/blob/c94a2d54a5179636eff02b57575f2ee8e8372cf6/datasheets/relay-timeout.md#L17-L18
+	// TODO
+	// agent suggestion: tick with a time.Ticker; remember when rx last moved; once it has not moved for timeout call expired and return; return when ctx ends.
+	// human input:
+}

@@ -1,6 +1,8 @@
 package meowcaller
 
 import (
+	"time"
+
 	"github.com/purpshell/meowcaller/diag"
 	"github.com/rs/zerolog"
 )
@@ -14,6 +16,7 @@ type config struct {
 	log          zerolog.Logger
 	diag         *diag.Recorder
 	mediaHandoff MediaHandoff
+	relayTimeout time.Duration
 }
 
 func resolveConfig(opts []Option) config {

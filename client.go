@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/purpshell/meowcaller/diag"
 	"github.com/rs/zerolog"
@@ -25,6 +26,7 @@ type Client struct {
 	eng  *engine
 
 	mediaHandoff MediaHandoff
+	relayTimeout time.Duration
 
 	getGroupInfo func(context.Context, types.JID) (*types.GroupInfo, error)
 	ownGroupJIDs func() []types.JID
