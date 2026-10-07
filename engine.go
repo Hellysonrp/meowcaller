@@ -923,6 +923,8 @@ func (e *engine) onAccept(ev *events.CallAccept) {
 	}
 	e.mu.Lock()
 	var rekeyPeer func(string) error
+	// Source of truth: https://github.com/Hellysonrp/meowcaller/blob/fd286118a0affd81478f94ca98df5c78e008b16f/datasheets/media-handoff.md#L33-L34
+	var addressChanged func()
 	answeringPeer := ev.From.String()
 	if current := e.calls[ev.CallID]; current != nil {
 		if device, ok := inviteDeviceCapability(ev.From, ev.Data); ok {
@@ -930,12 +932,18 @@ func (e *engine) onAccept(ev *events.CallAccept) {
 		}
 		e.applyVoipSettingsCodec(current, ev.Data, ev.CallID)
 		if !ev.From.IsEmpty() {
+			// Source of truth: https://github.com/Hellysonrp/meowcaller/blob/fd286118a0affd81478f94ca98df5c78e008b16f/datasheets/media-handoff.md#L34
+			if current.from != ev.From {
+				addressChanged = current.addressChanged
+			}
 			current.from = ev.From
 			answeringPeer = preferQualifiedPeer(current.peerLID, ev.From)
 		}
 		if answeringPeer != "" && answeringPeer != current.peerLID {
 			current.peerLID = answeringPeer
 			rekeyPeer = current.rekeyPeer
+			// Source of truth: https://github.com/Hellysonrp/meowcaller/blob/fd286118a0affd81478f94ca98df5c78e008b16f/datasheets/media-handoff.md#L33
+			addressChanged = nil
 		}
 	}
 	e.mu.Unlock()
@@ -945,6 +953,10 @@ func (e *engine) onAccept(ev *events.CallAccept) {
 		} else {
 			e.c.log.Info().Str("call_id", ev.CallID).Str("peer_lid", answeringPeer).Msg("rekeyed media to answering device")
 		}
+	}
+	// Source of truth: https://github.com/Hellysonrp/meowcaller/blob/fd286118a0affd81478f94ca98df5c78e008b16f/datasheets/media-handoff.md#L33-L34
+	if addressChanged != nil {
+		addressChanged()
 	}
 	if m.call != nil && m.call.State() < CallPhaseConnecting {
 		m.call.setPhase(CallPhaseConnecting)

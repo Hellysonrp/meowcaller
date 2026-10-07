@@ -31,7 +31,7 @@ All notable changes to meowcaller, tracked per module. Format loosely follows
   until an outgoing call to a callee with WhatsApp Web linked keeps ringing on
   the phone and can be answered.
 
-### engine/media-handoff — `partial`
+### engine/media-handoff — `implemented`
 
 - Added the `UNMAPPED` datasheet: a client built with `WithMediaHandoff` hands
   each 1:1 call's media session to a `MediaHandoff` instead of running it, and
@@ -62,6 +62,10 @@ All notable changes to meowcaller, tracked per module. Format loosely follows
 - Scaffolded the stanza address: `MediaSession.To` and `CallCreator`, the
   `to` argument of `PeerChanged` and the `addressChanged` hook; their tests
   are wired and skipped until the bodies land.
+- Implemented the stanza address: the session carries `To` and `CallCreator`,
+  `PeerChanged` reports the current peer and address, an accept that changes
+  only the address is reported, and a change during `StartMedia` follows it;
+  the new tests are enabled and pass.
 
 ### build — `implemented`
 

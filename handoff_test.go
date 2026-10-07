@@ -99,13 +99,15 @@ func TestMediaHandoffStartsIncomingMediaOnce(t *testing.T) {
 	}
 	m := eng.calls["CID"]
 	want := MediaSession{
-		CallID:    "CID",
-		CallKey:   m.callKey,
-		SelfLID:   m.selfLID,
-		PeerLID:   m.peerLID,
-		Direction: CallDirectionIncoming,
-		Codec:     AudioCodecMlow,
-		Relay:     newMediaSessionRelay(m.relay),
+		CallID:      "CID",
+		CallKey:     m.callKey,
+		SelfLID:     m.selfLID,
+		PeerLID:     m.peerLID,
+		To:          m.from.String(),
+		CallCreator: m.creator.String(),
+		Direction:   CallDirectionIncoming,
+		Codec:       AudioCodecMlow,
+		Relay:       newMediaSessionRelay(m.relay),
 	}
 	if !reflect.DeepEqual(h.sessions[0], want) {
 		t.Fatalf("session = %+v, want %+v", h.sessions[0], want)
@@ -253,13 +255,7 @@ func TestMediaHandoffSkipsGroupCalls(t *testing.T) {
 	}
 }
 
-func skipStanzaAddressStub(t *testing.T) {
-	t.Helper()
-	t.Skip("blocked: engine/media-handoff stanza address is a stub; enable when implemented")
-}
-
 func TestMediaHandoffSessionCarriesStanzaAddress(t *testing.T) {
-	skipStanzaAddressStub(t)
 	for _, direction := range []CallDirection{CallDirectionIncoming, CallDirectionOutgoing} {
 		h := &recordingHandoff{}
 		eng, _ := testEngineWithHandoff(h, direction)
@@ -277,7 +273,6 @@ func TestMediaHandoffSessionCarriesStanzaAddress(t *testing.T) {
 }
 
 func TestMediaHandoffReportsAddressChangeWithUnchangedPeer(t *testing.T) {
-	skipStanzaAddressStub(t)
 	h := &recordingHandoff{}
 	eng, call := testEngineWithHandoff(h, CallDirectionOutgoing)
 	qualified := peerDevice(3)
@@ -300,7 +295,6 @@ func TestMediaHandoffReportsAddressChangeWithUnchangedPeer(t *testing.T) {
 }
 
 func TestMediaHandoffReportsNewPeerAndAddressOnAccept(t *testing.T) {
-	skipStanzaAddressStub(t)
 	h := &recordingHandoff{}
 	eng, call := testEngineWithHandoff(h, CallDirectionOutgoing)
 	eng.maybeStartMedia("CID")
@@ -320,7 +314,6 @@ func TestMediaHandoffReportsNewPeerAndAddressOnAccept(t *testing.T) {
 }
 
 func TestMediaHandoffRelayPeerChangeReportsCurrentAddress(t *testing.T) {
-	skipStanzaAddressStub(t)
 	h := &recordingHandoff{}
 	eng, _ := testEngineWithHandoff(h, CallDirectionIncoming)
 	eng.maybeStartMedia("CID")
@@ -351,7 +344,6 @@ func TestMediaHandoffRelayPeerChangeReportsCurrentAddress(t *testing.T) {
 }
 
 func TestMediaHandoffAddressChangeDuringStartMediaFollowsIt(t *testing.T) {
-	skipStanzaAddressStub(t)
 	h := &recordingHandoff{}
 	eng, call := testEngineWithHandoff(h, CallDirectionOutgoing)
 	qualified := peerDevice(3)
@@ -378,8 +370,25 @@ func TestMediaHandoffAddressChangeDuringStartMediaFollowsIt(t *testing.T) {
 	}
 }
 
+func TestMediaHandoffPeerChangeAfterEndIsNotReported(t *testing.T) {
+	h := &recordingHandoff{}
+	eng, _ := testEngineWithHandoff(h, CallDirectionOutgoing)
+	eng.maybeStartMedia("CID")
+	eng.mu.Lock()
+	forward := eng.calls["CID"].rekeyPeer
+	eng.mu.Unlock()
+
+	eng.finishCall("CID", "hangup")
+	if err := forward(peerDevice(7).String()); err != nil {
+		t.Fatalf("forward: %v", err)
+	}
+
+	if len(h.peers) != 0 {
+		t.Fatalf("peer changes after the call ended = %q (addresses %q), want none", h.peers, h.tos)
+	}
+}
+
 func TestAcceptChangingOnlyAddressWithoutHandoffCallsNoHook(t *testing.T) {
-	skipStanzaAddressStub(t)
 	eng, call := testEngineWithOutgoingCall()
 	qualified := peerDevice(3)
 	m := eng.calls["CID"]

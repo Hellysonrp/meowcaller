@@ -106,13 +106,16 @@ func (r MediaSessionRelay) relayData() *relayData {
 func mediaSessionLocked(callID string, m *engineCall) MediaSession {
 	// Source of truth: https://github.com/Hellysonrp/meowcaller/blob/9259460582560c1dcc6da66ec9c94abc15c71b70/datasheets/media-handoff.md#L37-L38
 	return MediaSession{
-		CallID:    callID,
-		CallKey:   bytes.Clone(m.callKey),
-		SelfLID:   m.selfLID,
-		PeerLID:   m.peerLID,
-		Direction: m.direction,
-		Codec:     m.codec,
-		Relay:     newMediaSessionRelay(m.relay),
+		CallID:  callID,
+		CallKey: bytes.Clone(m.callKey),
+		SelfLID: m.selfLID,
+		PeerLID: m.peerLID,
+		// Source of truth: https://github.com/Hellysonrp/meowcaller/blob/fd286118a0affd81478f94ca98df5c78e008b16f/datasheets/media-handoff.md#L38-L39
+		To:          m.from.String(),
+		CallCreator: m.creator.String(),
+		Direction:   m.direction,
+		Codec:       m.codec,
+		Relay:       newMediaSessionRelay(m.relay),
 	}
 }
 
@@ -129,8 +132,22 @@ func (e *engine) prepareHandoffLocked(callID string, m *engineCall, h MediaHando
 	session := mediaSessionLocked(callID, m)
 	call := m.call
 	inbound := m.direction == CallDirectionIncoming
-	forward := func(peerLID string) error {
-		h.PeerChanged(callID, peerLID, session.To)
+	// Source of truth: https://github.com/Hellysonrp/meowcaller/blob/fd286118a0affd81478f94ca98df5c78e008b16f/datasheets/media-handoff.md#L33-L34
+	address := func() (peerLID, to string, ok bool) {
+		e.mu.Lock()
+		defer e.mu.Unlock()
+		if m := e.calls[callID]; m != nil {
+			return m.peerLID, m.from.String(), true
+		}
+		return "", "", false
+	}
+	addressChanged := func() {
+		if peerLID, to, ok := address(); ok {
+			h.PeerChanged(callID, peerLID, to)
+		}
+	}
+	forward := func(string) error {
+		addressChanged()
 		return nil
 	}
 	return func() {
@@ -140,18 +157,20 @@ func (e *engine) prepareHandoffLocked(callID string, m *engineCall, h MediaHando
 		e.c.log.Info().Str("call_id", callID).Int("relay_endpoints", len(session.Relay.Endpoints)).Msg("handing media off")
 		h.StartMedia(session)
 
-		// The hook goes in only after StartMedia returns, as runMedia does after its
-		// relay connects, so no PeerChanged precedes the session; a peer change in
-		// between is read back from m.peerLID.
+		// The hooks go in only after StartMedia returns, as runMedia does after its
+		// relay connects, so no PeerChanged precedes the session; a peer or address
+		// change in between is read back from m.peerLID and m.from.
+		// Source of truth: https://github.com/Hellysonrp/meowcaller/blob/fd286118a0affd81478f94ca98df5c78e008b16f/datasheets/media-handoff.md#L33
 		e.mu.Lock()
-		current := session.PeerLID
+		current, currentTo := session.PeerLID, session.To
 		if m := e.calls[callID]; m != nil {
 			m.rekeyPeer = forward
-			current = m.peerLID
+			m.addressChanged = addressChanged
+			current, currentTo = m.peerLID, m.from.String()
 		}
 		e.mu.Unlock()
-		if current != "" && current != session.PeerLID {
-			h.PeerChanged(callID, current, session.To)
+		if current != session.PeerLID || currentTo != session.To {
+			h.PeerChanged(callID, current, currentTo)
 		}
 	}
 }
