@@ -7,6 +7,11 @@ All notable changes to meowcaller, tracked per module. Format loosely follows
 
 ## [Unreleased]
 
+### engine/accept-sent — `planned`
+
+- Added the `UNMAPPED` datasheet: a `Call` reports, once, that this client's
+  accept for an incoming call went out.
+
 ### engine/outgoing-reject — `implemented`
 
 - Added the `UNMAPPED` datasheet for upstream issue #25: an outgoing 1:1 call
