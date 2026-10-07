@@ -7,21 +7,23 @@ type MediaHandoff interface {
 	// StartMedia receives the call's media session, once, when the engine would have
 	// started its media.
 	StartMedia(session MediaSession)
-	// PeerChanged reports a later change of the call's peer: the relay-elected peer
-	// device or the device that answered.
-	PeerChanged(callID, peerLID string)
+	// PeerChanged reports a later change of the call's peer or of the address its
+	// stanzas go to, with the current value of both.
+	PeerChanged(callID, peerLID, to string)
 }
 
 // MediaSession is everything RunMedia needs to run one 1:1 call's media. CallKey and
 // the relay key and tokens are secrets.
 type MediaSession struct {
-	CallID    string
-	CallKey   []byte
-	SelfLID   string
-	PeerLID   string
-	Direction CallDirection
-	Codec     AudioCodec
-	Relay     MediaSessionRelay
+	CallID      string
+	CallKey     []byte
+	SelfLID     string
+	PeerLID     string
+	To          string // the JID the call's stanzas are sent to
+	CallCreator string // the call's creator
+	Direction   CallDirection
+	Codec       AudioCodec
+	Relay       MediaSessionRelay
 }
 
 // MediaSessionRelay is the relay allocation a call's media connects to.
@@ -128,7 +130,7 @@ func (e *engine) prepareHandoffLocked(callID string, m *engineCall, h MediaHando
 	call := m.call
 	inbound := m.direction == CallDirectionIncoming
 	forward := func(peerLID string) error {
-		h.PeerChanged(callID, peerLID)
+		h.PeerChanged(callID, peerLID, session.To)
 		return nil
 	}
 	return func() {
@@ -149,7 +151,7 @@ func (e *engine) prepareHandoffLocked(callID string, m *engineCall, h MediaHando
 		}
 		e.mu.Unlock()
 		if current != "" && current != session.PeerLID {
-			h.PeerChanged(callID, current)
+			h.PeerChanged(callID, current, session.To)
 		}
 	}
 }

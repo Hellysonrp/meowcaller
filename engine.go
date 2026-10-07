@@ -86,6 +86,10 @@ type engineCall struct {
 
 	// preAccepted holds every callee device that preaccepted an outgoing call.
 	preAccepted map[types.JID]struct{}
+
+	// addressChanged reports a change of only the call's stanza address to a media
+	// handoff; nil without one.
+	addressChanged func()
 }
 
 // newEngine creates the engine for a Client.

@@ -17,6 +17,7 @@ type recordingHandoff struct {
 	onStart          func()
 	starting         bool
 	peersDuringStart int
+	tos              []string
 }
 
 func (h *recordingHandoff) StartMedia(session MediaSession) {
@@ -28,11 +29,12 @@ func (h *recordingHandoff) StartMedia(session MediaSession) {
 	h.starting = false
 }
 
-func (h *recordingHandoff) PeerChanged(callID, peerLID string) {
+func (h *recordingHandoff) PeerChanged(callID, peerLID, to string) {
 	if h.starting {
 		h.peersDuringStart++
 	}
 	h.peers = append(h.peers, callID+" "+peerLID)
+	h.tos = append(h.tos, to)
 }
 
 func handoffTestRelay() *waBinary.Node {
@@ -248,5 +250,153 @@ func TestMediaHandoffSkipsGroupCalls(t *testing.T) {
 	}
 	if !m.started || m.cancel != nil {
 		t.Fatal("a group call under a handoff must be marked started without local media")
+	}
+}
+
+func skipStanzaAddressStub(t *testing.T) {
+	t.Helper()
+	t.Skip("blocked: engine/media-handoff stanza address is a stub; enable when implemented")
+}
+
+func TestMediaHandoffSessionCarriesStanzaAddress(t *testing.T) {
+	skipStanzaAddressStub(t)
+	for _, direction := range []CallDirection{CallDirectionIncoming, CallDirectionOutgoing} {
+		h := &recordingHandoff{}
+		eng, _ := testEngineWithHandoff(h, direction)
+
+		eng.maybeStartMedia("CID")
+
+		if len(h.sessions) != 1 {
+			t.Fatalf("direction %d: StartMedia calls = %d, want 1", direction, len(h.sessions))
+		}
+		if got := h.sessions[0]; got.To != peerJID().String() || got.CallCreator != creatorJID().String() {
+			t.Fatalf("direction %d: address = (%q, %q), want (%q, %q)",
+				direction, got.To, got.CallCreator, peerJID().String(), creatorJID().String())
+		}
+	}
+}
+
+func TestMediaHandoffReportsAddressChangeWithUnchangedPeer(t *testing.T) {
+	skipStanzaAddressStub(t)
+	h := &recordingHandoff{}
+	eng, call := testEngineWithHandoff(h, CallDirectionOutgoing)
+	qualified := peerDevice(3)
+	m := eng.calls["CID"]
+	m.peerLID = qualified.String()
+	m.from = qualified
+	eng.maybeStartMedia("CID")
+
+	eng.onAccept(&events.CallAccept{
+		BasicCallMeta: types.BasicCallMeta{CallID: call.ID(), From: peerDevice(0)},
+		Data:          &waBinary.Node{Tag: "accept"},
+	})
+
+	if want := []string{"CID " + qualified.String()}; !reflect.DeepEqual(h.peers, want) {
+		t.Fatalf("peer changes = %q, want %q", h.peers, want)
+	}
+	if want := []string{peerDevice(0).String()}; !reflect.DeepEqual(h.tos, want) {
+		t.Fatalf("addresses = %q, want %q", h.tos, want)
+	}
+}
+
+func TestMediaHandoffReportsNewPeerAndAddressOnAccept(t *testing.T) {
+	skipStanzaAddressStub(t)
+	h := &recordingHandoff{}
+	eng, call := testEngineWithHandoff(h, CallDirectionOutgoing)
+	eng.maybeStartMedia("CID")
+	answering := peerDevice(7)
+
+	eng.onAccept(&events.CallAccept{
+		BasicCallMeta: types.BasicCallMeta{CallID: call.ID(), From: answering},
+		Data:          &waBinary.Node{Tag: "accept"},
+	})
+
+	if want := []string{"CID " + answering.String()}; !reflect.DeepEqual(h.peers, want) {
+		t.Fatalf("peer changes = %q, want %q", h.peers, want)
+	}
+	if want := []string{answering.String()}; !reflect.DeepEqual(h.tos, want) {
+		t.Fatalf("addresses = %q, want %q", h.tos, want)
+	}
+}
+
+func TestMediaHandoffRelayPeerChangeReportsCurrentAddress(t *testing.T) {
+	skipStanzaAddressStub(t)
+	h := &recordingHandoff{}
+	eng, _ := testEngineWithHandoff(h, CallDirectionIncoming)
+	eng.maybeStartMedia("CID")
+	elected := peerDevice(9)
+	relay := handoffTestRelay()
+	relay.Attrs = waBinary.Attrs{"peer_pid": "1"}
+	relay.Content = append(relay.GetChildren(), waBinary.Node{
+		Tag: "participant", Attrs: waBinary.Attrs{"pid": "1", "jid": elected},
+	})
+
+	done := make(chan struct{})
+	go func() {
+		eng.onRelay("CID", relay)
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("a relay-elected peer change deadlocked the handoff")
+	}
+
+	if want := []string{"CID " + elected.String()}; !reflect.DeepEqual(h.peers, want) {
+		t.Fatalf("peer changes = %q, want %q", h.peers, want)
+	}
+	if want := []string{peerJID().String()}; !reflect.DeepEqual(h.tos, want) {
+		t.Fatalf("addresses = %q, want %q", h.tos, want)
+	}
+}
+
+func TestMediaHandoffAddressChangeDuringStartMediaFollowsIt(t *testing.T) {
+	skipStanzaAddressStub(t)
+	h := &recordingHandoff{}
+	eng, call := testEngineWithHandoff(h, CallDirectionOutgoing)
+	qualified := peerDevice(3)
+	m := eng.calls["CID"]
+	m.peerLID = qualified.String()
+	m.from = qualified
+	h.onStart = func() {
+		eng.onAccept(&events.CallAccept{
+			BasicCallMeta: types.BasicCallMeta{CallID: call.ID(), From: peerDevice(0)},
+			Data:          &waBinary.Node{Tag: "accept"},
+		})
+	}
+
+	eng.maybeStartMedia("CID")
+
+	if h.peersDuringStart != 0 {
+		t.Fatal("PeerChanged ran before StartMedia returned")
+	}
+	if want := []string{"CID " + qualified.String()}; !reflect.DeepEqual(h.peers, want) {
+		t.Fatalf("peer changes = %q, want %q", h.peers, want)
+	}
+	if want := []string{peerDevice(0).String()}; !reflect.DeepEqual(h.tos, want) {
+		t.Fatalf("addresses = %q, want %q", h.tos, want)
+	}
+}
+
+func TestAcceptChangingOnlyAddressWithoutHandoffCallsNoHook(t *testing.T) {
+	skipStanzaAddressStub(t)
+	eng, call := testEngineWithOutgoingCall()
+	qualified := peerDevice(3)
+	m := eng.calls["CID"]
+	m.peerLID = qualified.String()
+	m.from = qualified
+	rekeys := 0
+	m.rekeyPeer = func(string) error { rekeys++; return nil }
+
+	eng.onAccept(&events.CallAccept{
+		BasicCallMeta: types.BasicCallMeta{CallID: call.ID(), From: peerDevice(0)},
+		Data:          &waBinary.Node{Tag: "accept"},
+	})
+
+	if rekeys != 0 || m.addressChanged != nil {
+		t.Fatalf("rekeys = %d, addressChanged installed = %v; want no hook", rekeys, m.addressChanged != nil)
+	}
+	if m.from != peerDevice(0) {
+		t.Fatalf("address = %s, want %s", m.from, peerDevice(0))
 	}
 }
