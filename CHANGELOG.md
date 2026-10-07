@@ -7,11 +7,14 @@ All notable changes to meowcaller, tracked per module. Format loosely follows
 
 ## [Unreleased]
 
-### engine/outgoing-reject — `planned`
+### engine/outgoing-reject — `scaffolded`
 
 - Added the `UNMAPPED` datasheet for upstream issue #25: an outgoing 1:1 call
   ends on a reject only from the callee's device 0 or from a device that
   preaccepted it.
+- Scaffolded `recordPreAccept` and `ignoresSecondaryReject` with the
+  `engineCall.preAccepted` set; their tests are wired and skipped until the
+  bodies land.
 
 ### engine/media-handoff — `implemented`
 

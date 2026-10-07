@@ -82,6 +82,9 @@ type engineCall struct {
 	earlyMuteCreator types.JID
 	inboundSeen      bool
 	answered         bool
+
+	// preAccepted holds every callee device that preaccepted an outgoing call.
+	preAccepted map[types.JID]struct{}
 }
 
 // newEngine creates the engine for a Client.
