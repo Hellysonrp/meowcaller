@@ -56,6 +56,9 @@ All notable changes to meowcaller, tracked per module. Format loosely follows
   runs the loop against a loopback relay that never sends and passes. A local
   call's hangup now logs `media stopped` at info instead of a `media ended`
   warning (`TestLocalMediaHangupIsNotAWarning`).
+- Updated the datasheet: the session carries the call's stanza address and
+  creator, and `PeerChanged` reports the current peer and address, including an
+  accept that changes only the address.
 
 ### build — `implemented`
 

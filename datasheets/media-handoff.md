@@ -10,7 +10,7 @@ plus a human-run live 1:1 call with its media on a different host from its signa
 
 **Reference pinned at:** `UNMAPPED` — the handoff is this fork's own design, not a
 port. The human reviewer authorized this implementation
-on 2026-10-07.
+on 2026-10-07, and its stanza-address update on 2026-10-07.
 
 ## Reference source (verbatim — authoritative)
 
@@ -30,13 +30,16 @@ The following policy is human-authorized but remains live-E2E unvalidated:
 ```text
 a client built with WithMediaHandoff never runs media itself
 when it would start media for a 1:1 call, it calls StartMedia once with the call's session, after releasing the engine lock
-it sets the call's rekeyPeer to forward every later peer change to PeerChanged
+it forwards every later change of the call's peer, or of the address its stanzas go to, to PeerChanged with the current value of both
+an outgoing call's address becomes the device that answered when its accept arrives, even when its peer LID stays the same
 a group call under a handoff starts no media
 signaling is unchanged: Answer, Reject, Hangup, OnEnd, and the Ringing, Calling and Connecting phases
 Active and OnReady never fire on the signaling side under a handoff
-the session is plain data: call ID, call key, self and peer LIDs, direction, codec, relay key, relay tokens and relay endpoints
+the session is plain data: call ID, call key, self and peer LIDs, the address the call's stanzas go to and the call's creator, direction, codec, relay key, relay tokens and relay endpoints
+the address and the creator are the JIDs Hangup and Reject address their stanzas with
 the session leaves out the relay's peer JID, video state and app-data state, and owns copies of every byte slice
 RunMedia validates the session, then runs it on an engine with no WhatsApp client
+RunMedia ignores the address and the creator
 RunMedia's call starts Connecting and is marked answered, so its first inbound audio fires OnReady
 Play, Subscribe, Receive and OnReady act on RunMedia's call as on any call
 Rekey stores the new peer, and calls rekeyPeer once the loop has installed it
@@ -51,17 +54,19 @@ package meowcaller
 
 type MediaHandoff interface {
 	StartMedia(session MediaSession)
-	PeerChanged(callID, peerLID string)
+	PeerChanged(callID, peerLID, to string)
 }
 
 type MediaSession struct {
-	CallID    string
-	CallKey   []byte
-	SelfLID   string
-	PeerLID   string
-	Direction CallDirection
-	Codec     AudioCodec
-	Relay     MediaSessionRelay
+	CallID      string
+	CallKey     []byte
+	SelfLID     string
+	PeerLID     string
+	To          string
+	CallCreator string
+	Direction   CallDirection
+	Codec       AudioCodec
+	Relay       MediaSessionRelay
 }
 
 type MediaSessionRelay struct {
@@ -107,6 +112,8 @@ func (c *MediaCall) Err() error
 
 `config` and `Client` each gain a `mediaHandoff MediaHandoff` field; `NewClient`
 copies it, and `maybeStartMedia` hands off before it would launch `runMedia`.
+`engineCall` also gains `addressChanged func()`, which a handoff installs with
+`rekeyPeer`; `onAccept` calls it when only the call's address changed.
 
 ## Implementation suggestions (guidance, not authoritative)
 
