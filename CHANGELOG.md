@@ -7,6 +7,11 @@ All notable changes to meowcaller, tracked per module. Format loosely follows
 
 ## [Unreleased]
 
+### engine/relay-timeout — `planned`
+
+- Added the `UNMAPPED` datasheet: `WithRelayTimeout(d)` ends a call's media
+  when the relay sends nothing for `d`, with `ErrRelayTimeout`.
+
 ### engine/accept-sent — `implemented`
 
 - Added the `UNMAPPED` datasheet: a `Call` reports, once, that this client's
