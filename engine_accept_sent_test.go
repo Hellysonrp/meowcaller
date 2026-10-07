@@ -8,11 +8,6 @@ import (
 	waBinary "go.mau.fi/whatsmeow/binary"
 )
 
-func skipAcceptSentStub(t *testing.T) {
-	t.Helper()
-	t.Skip("blocked: engine/accept-sent is a stub; enable when implemented")
-}
-
 func earlyMuteV2Node() *waBinary.Node {
 	return &waBinary.Node{
 		Tag:   "call",
@@ -35,7 +30,6 @@ func testEngineSendingAccepts(sendErr error) (*engine, *Call, *[]waBinary.Node) 
 }
 
 func TestAcceptSentFiresWhenAnswerSendsEarlyMuteAccept(t *testing.T) {
-	skipAcceptSentStub(t)
 	eng, call, sent := testEngineSendingAccepts(nil)
 	fired := 0
 	call.OnAcceptSent(func() { fired++ })
@@ -54,7 +48,6 @@ func TestAcceptSentFiresWhenAnswerSendsEarlyMuteAccept(t *testing.T) {
 }
 
 func TestAcceptSentWaitsForMuteAfterAnswer(t *testing.T) {
-	skipAcceptSentStub(t)
 	eng, call, sent := testEngineSendingAccepts(nil)
 	fired := 0
 	call.OnAcceptSent(func() { fired++ })
@@ -73,7 +66,6 @@ func TestAcceptSentWaitsForMuteAfterAnswer(t *testing.T) {
 }
 
 func TestAcceptSentSilentOnSendError(t *testing.T) {
-	skipAcceptSentStub(t)
 	eng, call, sent := testEngineSendingAccepts(errors.New("offline"))
 	fired := 0
 	call.OnAcceptSent(func() { fired++ })
@@ -89,7 +81,6 @@ func TestAcceptSentSilentOnSendError(t *testing.T) {
 }
 
 func TestAcceptSentLateListenerRunsOnceAtRegistration(t *testing.T) {
-	skipAcceptSentStub(t)
 	eng, call, _ := testEngineSendingAccepts(nil)
 	if err := eng.answer(call); err != nil {
 		t.Fatalf("answer: %v", err)
@@ -109,8 +100,21 @@ func TestAcceptSentLateListenerRunsOnceAtRegistration(t *testing.T) {
 	}
 }
 
+func TestAcceptWithoutRequestIDSourceStillCarriesAnID(t *testing.T) {
+	eng, call, sent := testEngineSendingAccepts(nil)
+	eng.newRequestID = nil
+
+	if err := eng.answer(call); err != nil {
+		t.Fatalf("answer: %v", err)
+	}
+	eng.onCallRaw(earlyMuteV2Node())
+
+	if len(*sent) != 1 || (*sent)[0].Attrs["id"] == "" {
+		t.Fatalf("sent = %#v, want one accept with a non-empty id", *sent)
+	}
+}
+
 func TestAcceptSentFiresForGroupAnswerBeforeConnecting(t *testing.T) {
-	skipAcceptSentStub(t)
 	eng, call, _ := testGroupEngine("GROUP")
 	eng.sendCallNode = func(context.Context, waBinary.Node) error { return nil }
 	fired := 0

@@ -95,6 +95,8 @@ func newEngine(c *Client) *engine {
 		e.sendCallNode = func(ctx context.Context, node waBinary.Node) error {
 			return c.wa.DangerousInternals().SendNode(ctx, node)
 		}
+		// Source of truth: https://github.com/Hellysonrp/meowcaller/blob/583935a75c2b46fc4d57ec72d391ebedaf7b3600/datasheets/accept-sent.md#L19
+		e.newRequestID = c.wa.DangerousInternals().GenerateRequestID
 		e.requestCallNode = func(ctx context.Context, node waBinary.Node, requestID string) (*waBinary.Node, error) {
 			di := c.wa.DangerousInternals()
 			waiter := di.WaitResponse(requestID)
@@ -689,6 +691,8 @@ func (e *engine) answer(c *Call) error {
 		if err = e.transmitCallNode(context.Background(), accept); err != nil {
 			return fmt.Errorf("meowcaller: send group accept: %w", err)
 		}
+		// Source of truth: https://github.com/Hellysonrp/meowcaller/blob/583935a75c2b46fc4d57ec72d391ebedaf7b3600/datasheets/accept-sent.md#L20
+		c.markAcceptSent()
 		c.setPhase(CallPhaseConnecting)
 		e.maybeStartMedia(c.id)
 		return nil
@@ -725,6 +729,8 @@ func (e *engine) sendAccept(callID string, to, creator types.JID) {
 	}
 	isVideo := m.localVideo || m.remoteVideo
 	m.acceptPending = false
+	// Source of truth: https://github.com/Hellysonrp/meowcaller/blob/583935a75c2b46fc4d57ec72d391ebedaf7b3600/datasheets/accept-sent.md#L18-L19
+	call := m.call
 	e.mu.Unlock()
 
 	accept := signaling.BuildAccept(&signaling.AcceptParams{
@@ -733,12 +739,21 @@ func (e *engine) sendAccept(callID string, to, creator types.JID) {
 		Metadata:   waBinary.Attrs{"peer_abtest_bucket_id_list": "125208,94276"},
 		Video:      isVideo,
 	})
-	accept.Attrs["id"] = e.c.wa.DangerousInternals().GenerateRequestID()
-	if err := e.c.wa.DangerousInternals().SendNode(context.Background(), accept); err != nil {
+	// Source of truth: https://github.com/Hellysonrp/meowcaller/blob/583935a75c2b46fc4d57ec72d391ebedaf7b3600/datasheets/accept-sent.md#L18-L19
+	requestID := e.nextCallNodeID()
+	if e.newRequestID != nil {
+		requestID = e.newRequestID()
+	}
+	accept.Attrs["id"] = requestID
+	if err := e.transmitCallNode(context.Background(), accept); err != nil {
 		e.c.log.Error().Err(err).Str("call_id", callID).Msg("send accept failed")
 		return
 	}
 	e.c.log.Info().Str("call_id", callID).Bool("video", isVideo).Msg("accepted (after mute_v2)")
+	// Source of truth: https://github.com/Hellysonrp/meowcaller/blob/583935a75c2b46fc4d57ec72d391ebedaf7b3600/datasheets/accept-sent.md#L17-L18
+	if call != nil {
+		call.markAcceptSent()
+	}
 }
 
 // reject declines an inbound call.

@@ -744,16 +744,31 @@ func (c *Call) markPeerAccepted() {
 // call going out. If the accept was already sent, the callback is invoked immediately.
 func (c *Call) OnAcceptSent(fn func()) {
 	// Source of truth: https://github.com/Hellysonrp/meowcaller/blob/583935a75c2b46fc4d57ec72d391ebedaf7b3600/datasheets/accept-sent.md#L17-L21
-	// TODO
-	// agent suggestion: mirror OnPeerAccept: under c.mu store fn and, when the accept was already sent and not yet notified, mark it notified; call fn after unlocking.
-	// human input:
+	c.mu.Lock()
+	c.onAcceptSent = fn
+	shouldNotify := c.acceptSent && !c.acceptSentNotified && fn != nil
+	if shouldNotify {
+		c.acceptSentNotified = true
+	}
+	c.mu.Unlock()
+	if shouldNotify {
+		fn()
+	}
 }
 
 func (c *Call) markAcceptSent() {
 	// Source of truth: https://github.com/Hellysonrp/meowcaller/blob/583935a75c2b46fc4d57ec72d391ebedaf7b3600/datasheets/accept-sent.md#L17-L18
-	// TODO
-	// agent suggestion: mirror markPeerAccepted: under c.mu set acceptSent and, when a callback is registered and not yet notified, mark it notified; call it after unlocking.
-	// human input:
+	c.mu.Lock()
+	c.acceptSent = true
+	fn := c.onAcceptSent
+	shouldNotify := !c.acceptSentNotified && fn != nil
+	if shouldNotify {
+		c.acceptSentNotified = true
+	}
+	c.mu.Unlock()
+	if shouldNotify {
+		fn()
+	}
 }
 
 // OnMuteState registers a callback fired for each inbound WhatsApp mute_v2 state.

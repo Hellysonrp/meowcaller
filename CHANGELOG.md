@@ -7,13 +7,16 @@ All notable changes to meowcaller, tracked per module. Format loosely follows
 
 ## [Unreleased]
 
-### engine/accept-sent — `scaffolded`
+### engine/accept-sent — `implemented`
 
 - Added the `UNMAPPED` datasheet: a `Call` reports, once, that this client's
   accept for an incoming call went out.
 - Scaffolded `OnAcceptSent`, `markAcceptSent`, their `Call` fields and the
   engine's `newRequestID`; their tests are wired and skipped until the bodies
   land.
+- Implemented the report: `sendAccept` sends through `transmitCallNode` and
+  reports a sent 1:1 accept, `Answer` reports a sent group accept, and a late
+  listener runs at once; the five tests are enabled and pass.
 
 ### engine/outgoing-reject — `implemented`
 
