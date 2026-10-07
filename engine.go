@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unsafe"
 
@@ -90,6 +91,10 @@ type engineCall struct {
 	// addressChanged reports a change of only the call's stanza address to a media
 	// handoff; nil without one.
 	addressChanged func()
+
+	// sendHeld holds a handed-off call's media sending while true; nil when RunMedia's
+	// options do not hold it.
+	sendHeld *atomic.Bool
 }
 
 // newEngine creates the engine for a Client.

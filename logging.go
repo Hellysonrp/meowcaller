@@ -17,6 +17,7 @@ type config struct {
 	diag         *diag.Recorder
 	mediaHandoff MediaHandoff
 	relayTimeout time.Duration
+	sendingHeld  bool
 }
 
 func resolveConfig(opts []Option) config {

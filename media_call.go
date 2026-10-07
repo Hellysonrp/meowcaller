@@ -135,6 +135,15 @@ func (c *MediaCall) Rekey(peerLID string) error {
 	return rekeyPeer(peerLID)
 }
 
+// StartSending ends a hold set by WithSendingHeld: sending starts with the next frame.
+// It does nothing for media run without the hold, and on a repeated call.
+func (c *MediaCall) StartSending() {
+	// Source of truth: https://github.com/Hellysonrp/meowcaller/blob/3d49711d486ddb54af1c918043f93940061787bb/datasheets/sending-held.md#L21-L22
+	// TODO
+	// agent suggestion: read the call's sendHeld under the engine lock and store false in it; a nil flag (no hold) or a repeated call changes nothing.
+	// human input:
+}
+
 // Stop ends the call's media. Done closes once the media loop has exited.
 func (c *MediaCall) Stop() {
 	// Source of truth: https://github.com/Hellysonrp/meowcaller/blob/9259460582560c1dcc6da66ec9c94abc15c71b70/datasheets/media-handoff.md#L44

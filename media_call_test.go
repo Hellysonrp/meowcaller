@@ -62,6 +62,13 @@ func quietRelaySession(t *testing.T) (MediaSession, <-chan struct{}) {
 // closeAfter packets; zero keeps it open.
 func loopbackRelaySession(t *testing.T, closeAfter int) (MediaSession, <-chan struct{}) {
 	t.Helper()
+	return recordingRelaySession(t, closeAfter, nil)
+}
+
+// recordingRelaySession is loopbackRelaySession whose relay hands every packet it reads
+// to onPacket; nil records nothing.
+func recordingRelaySession(t *testing.T, closeAfter int, onPacket func([]byte)) (MediaSession, <-chan struct{}) {
+	t.Helper()
 	cert, err := selfsign.GenerateSelfSigned()
 	if err != nil {
 		t.Fatalf("relay cert: %v", err)
@@ -101,8 +108,12 @@ func loopbackRelaySession(t *testing.T, closeAfter int) (MediaSession, <-chan st
 		}
 		buf := make([]byte, 1500)
 		for read := 0; ; read++ {
-			if _, err := dc.Read(buf); err != nil {
+			n, err := dc.Read(buf)
+			if err != nil {
 				return
+			}
+			if onPacket != nil {
+				onPacket(buf[:n])
 			}
 			if read == 20 {
 				close(flowing)

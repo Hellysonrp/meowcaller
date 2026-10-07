@@ -7,11 +7,14 @@ All notable changes to meowcaller, tracked per module. Format loosely follows
 
 ## [Unreleased]
 
-### engine/sending-held — `planned`
+### engine/sending-held — `scaffolded`
 
 - Added the `UNMAPPED` datasheet: `RunMedia` with `WithSendingHeld` brings the
   relay leg up and keeps it alive but sends no media until
   `MediaCall.StartSending`.
+- Scaffolded `WithSendingHeld`, `MediaCall.StartSending`, `sendingIsHeld` and
+  the `sendingHeld`/`sendHeld` fields; their tests are wired against a loopback
+  relay that records what it reads, and skipped until the bodies land.
 
 ### engine/relay-timeout — `implemented`
 
