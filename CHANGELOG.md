@@ -7,6 +7,13 @@ All notable changes to meowcaller, tracked per module. Format loosely follows
 
 ## [Unreleased]
 
+### mlow/fft — `implemented`
+
+- Merged upstream PR #30: the FFT reads a twiddle table computed once per
+  transform length and reuses pooled scratch buffers. Output is not
+  bit-identical to the previous transform; the mlow suite, golden vectors
+  included, and the PR's reference-DFT tests pass.
+
 ### media/group-runtime — `KAT-verified`
 
 - Hardened live group-call teardown by closing and detaching audio endpoints,
