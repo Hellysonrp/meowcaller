@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/binary"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -108,7 +109,12 @@ func (e *engine) maybeStartMedia(callID string) {
 	e.c.log.Info().Str("call_id", callID).Msg("starting media")
 	go func() {
 		defer clear(callKey)
-		if err := e.runMedia(mctx, callID, call, callKey, selfLID, peerLID, rd, inbound); err != nil {
+		err := e.runMedia(mctx, callID, call, callKey, selfLID, peerLID, rd, inbound)
+		// Source of truth: https://github.com/Hellysonrp/meowcaller/blob/9259460582560c1dcc6da66ec9c94abc15c71b70/datasheets/media-handoff.md#L43-L44
+		switch {
+		case errors.Is(err, context.Canceled):
+			e.c.log.Info().Str("call_id", callID).Msg("media stopped")
+		case err != nil:
 			e.c.log.Warn().Err(err).Str("call_id", callID).Msg("media ended")
 		}
 	}()
@@ -231,7 +237,12 @@ func (e *engine) runMedia(ctx context.Context, callID string, call *Call, callKe
 	if err != nil {
 		return err
 	}
-	defer ch.Close()
+	// Source of truth: https://github.com/Hellysonrp/meowcaller/blob/9259460582560c1dcc6da66ec9c94abc15c71b70/datasheets/media-handoff.md#L43-L44
+	// ch.Recv does not watch ctx: closing the channel on cancel is what ends a blocked receive.
+	closeCh := sync.OnceFunc(func() { _ = ch.Close() })
+	defer closeCh()
+	stopCloseOnCancel := context.AfterFunc(ctx, closeCh)
+	defer stopCloseOnCancel()
 	allocateState := newGroupRelayAllocateStateWithHBHFEC(
 		allocate,
 		rd.relayKeyASCII,
@@ -818,6 +829,11 @@ func (e *engine) runMedia(ctx context.Context, callID string, call *Call, callKe
 		}
 		n, err := ch.Recv(buf)
 		if err != nil {
+			// Source of truth: https://github.com/Hellysonrp/meowcaller/blob/9259460582560c1dcc6da66ec9c94abc15c71b70/datasheets/media-handoff.md#L43-L44
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				log.Debug().Err(err).Msg("relay receive ended by cancellation")
+				return ctxErr
+			}
 			return fmt.Errorf("relay recv: %w", err)
 		}
 		currentRosterGeneration, activeReceivers := audioReceivers.ActiveReceiverSnapshot()

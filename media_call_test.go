@@ -6,8 +6,19 @@ import (
 	"errors"
 	"net"
 	"reflect"
+	"strings"
+	"sync"
 	"testing"
 	"time"
+
+	"github.com/pion/datachannel"
+	"github.com/pion/dtls/v3"
+	"github.com/pion/dtls/v3/pkg/crypto/selfsign"
+	"github.com/pion/logging"
+	"github.com/pion/sctp"
+	"github.com/rs/zerolog"
+
+	"github.com/purpshell/meowcaller/relay"
 )
 
 // silentRelaySession is a session whose only relay endpoint is a local UDP socket that
@@ -36,6 +47,64 @@ func silentRelaySession(t *testing.T) MediaSession {
 			}},
 		},
 	}
+}
+
+// quietRelaySession is a session whose relay endpoint completes the DTLS, SCTP and
+// DataChannel handshake, reads everything it is sent, and never sends anything back.
+// The returned channel closes once the relay has read enough packets that the media
+// loop is waiting on its receive.
+func quietRelaySession(t *testing.T) (MediaSession, <-chan struct{}) {
+	t.Helper()
+	cert, err := selfsign.GenerateSelfSigned()
+	if err != nil {
+		t.Fatalf("relay cert: %v", err)
+	}
+	ln, err := dtls.ListenWithOptions("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)}, dtls.WithCertificates(cert))
+	if err != nil {
+		t.Fatalf("relay listen: %v", err)
+	}
+	accepted := make(chan net.Conn, 1)
+	t.Cleanup(func() {
+		ln.Close()
+		select {
+		case conn := <-accepted:
+			conn.Close()
+		default:
+		}
+	})
+	flowing := make(chan struct{})
+	go func() {
+		conn, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		accepted <- conn
+		assoc, err := sctp.ServerWithOptions(sctp.WithNetConn(conn), sctp.WithName("quiet-relay"))
+		if err != nil {
+			return
+		}
+		defer assoc.Close()
+		dc, err := datachannel.Dial(assoc, 0, &datachannel.Config{
+			Negotiated:    true,
+			Label:         relay.DataChannelLabel,
+			LoggerFactory: logging.NewDefaultLoggerFactory(),
+		})
+		if err != nil {
+			return
+		}
+		buf := make([]byte, 1500)
+		for read := 0; ; read++ {
+			if _, err := dc.Read(buf); err != nil {
+				return
+			}
+			if read == 20 {
+				close(flowing)
+			}
+		}
+	}()
+	session := silentRelaySession(t)
+	session.Relay.Endpoints[0].Addresses[0].Port = uint16(ln.Addr().(*net.UDPAddr).Port)
+	return session, flowing
 }
 
 func waitMediaDone(t *testing.T, mc *MediaCall) {
@@ -108,6 +177,80 @@ func TestRunMediaBuildsCallFromSessionAndStops(t *testing.T) {
 	}
 	if mc.eng.lookup("CID") != nil {
 		t.Fatal("the ended call is still registered")
+	}
+}
+
+func TestRunMediaStopEndsConnectedMedia(t *testing.T) {
+	session, flowing := quietRelaySession(t)
+	mc, err := RunMedia(context.Background(), session)
+	if err != nil {
+		t.Fatalf("RunMedia: %v", err)
+	}
+	select {
+	case <-flowing:
+	case <-mc.Done():
+		t.Fatalf("the media ended before it connected: %v", mc.Err())
+	case <-time.After(10 * time.Second):
+		mc.Stop()
+		waitMediaDone(t, mc)
+		t.Fatal("the media never reached the relay")
+	}
+
+	mc.Stop()
+	waitMediaDone(t, mc)
+
+	if err := mc.Err(); !errors.Is(err, context.Canceled) {
+		t.Fatalf("Err = %v, want context.Canceled", err)
+	}
+}
+
+// syncBuffer is a log sink safe for the media goroutines to write while a test reads it.
+type syncBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *syncBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *syncBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
+
+func TestLocalMediaHangupIsNotAWarning(t *testing.T) {
+	session, flowing := quietRelaySession(t)
+	eng, _, _ := testEngineWithIncomingCall()
+	logs := &syncBuffer{}
+	eng.c.log = zerolog.New(logs).Level(zerolog.DebugLevel)
+	m := eng.calls["CID"]
+	m.callKey = session.CallKey
+	m.relay = session.Relay.relayData()
+	m.selfLID = session.SelfLID
+	m.peerLID = session.PeerLID
+
+	eng.maybeStartMedia("CID")
+	select {
+	case <-flowing:
+	case <-time.After(10 * time.Second):
+		eng.finishCall("CID", "test timeout")
+		t.Fatal("the media never reached the relay")
+	}
+	eng.finishCall("CID", "hangup")
+
+	deadline := time.Now().Add(5 * time.Second)
+	for !strings.Contains(logs.String(), `"message":"media stopped"`) {
+		if time.Now().After(deadline) {
+			t.Fatalf("no media-stopped line after hangup; logs:\n%s", logs.String())
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if strings.Contains(logs.String(), `"message":"media ended"`) {
+		t.Fatalf("a normal hangup logged media ended; logs:\n%s", logs.String())
 	}
 }
 

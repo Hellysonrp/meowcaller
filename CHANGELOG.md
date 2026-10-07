@@ -39,6 +39,12 @@ All notable changes to meowcaller, tracked per module. Format loosely follows
   different host from its signaling.
 - Implemented `MediaCall`'s audio attachments and `Rekey`; every module test is
   enabled and passes.
+- Fixed `Stop` on a connected call: the media loop's receive did not watch its
+  context, so `Done` waited for the relay's next packet. `runMedia` now closes
+  the relay channel when its context ends; `TestRunMediaStopEndsConnectedMedia`
+  runs the loop against a loopback relay that never sends and passes. A local
+  call's hangup now logs `media stopped` at info instead of a `media ended`
+  warning (`TestLocalMediaHangupIsNotAWarning`).
 
 ### build — `implemented`
 
