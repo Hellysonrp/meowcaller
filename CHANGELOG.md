@@ -20,6 +20,10 @@ All notable changes to meowcaller, tracked per module. Format loosely follows
 - Implemented the signaling side: `maybeStartMedia` hands a ready 1:1 call to
   the `MediaHandoff` once, outside the engine lock, forwards later peer
   changes, and starts no media for group calls; its tests are enabled and pass.
+- Implemented `RunMedia`, `Stop`, `Done` and `Err` on an engine with no
+  WhatsApp client; their tests are enabled and pass. The live relay path is
+  `NOT VALIDATED` until a 1:1 call carries audio both ways with its media on a
+  different host from its signaling.
 
 ### build — `implemented`
 

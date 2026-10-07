@@ -1,6 +1,13 @@
 package meowcaller
 
-import "context"
+import (
+	"bytes"
+	"context"
+	"errors"
+	"fmt"
+
+	"go.mau.fi/whatsmeow/types"
+)
 
 // MediaCall is a 1:1 call whose media runs here while its signaling runs on another
 // Client, which handed its session over through MediaHandoff.
@@ -16,10 +23,63 @@ type MediaCall struct {
 // connection, the codec and the end-to-end SRTP. Done reports when it ends.
 func RunMedia(ctx context.Context, session MediaSession, opts ...Option) (*MediaCall, error) {
 	// Source of truth: https://github.com/Hellysonrp/meowcaller/blob/9259460582560c1dcc6da66ec9c94abc15c71b70/datasheets/media-handoff.md#L39-L40
-	// TODO
-	// agent suggestion: validate the call ID, call key, peer LID and relay endpoints; build an engine from a Client with only the logger and recorder; register one engineCall from the session (answered, started, Connecting); run runMedia in a goroutine that records its error, finishes the call and closes Done.
-	// human input:
-	return nil, errNotImplemented
+	// NOT VALIDATED: validated once a live 1:1 call carries audio both ways with its media on a different host and public IP from its signaling.
+	switch {
+	case session.CallID == "":
+		return nil, errors.New("meowcaller: media session has no call ID")
+	case len(session.CallKey) == 0:
+		return nil, errors.New("meowcaller: media session has no call key")
+	case session.PeerLID == "":
+		return nil, errors.New("meowcaller: media session has no peer LID")
+	case len(session.Relay.Endpoints) == 0:
+		return nil, errors.New("meowcaller: media session has no relay endpoint")
+	}
+	peer, err := types.ParseJID(session.PeerLID)
+	if err != nil {
+		return nil, fmt.Errorf("meowcaller: parse media session peer LID: %w", err)
+	}
+
+	cfg := resolveConfig(opts)
+	c := &Client{log: cfg.log, diag: cfg.diag}
+	e := newEngine(c)
+	c.eng = e
+	call := &Call{eng: e, id: session.CallID, peer: peer, phase: CallPhaseConnecting}
+	rd := session.Relay.relayData()
+	mctx, cancel := context.WithCancel(ctx)
+	e.calls[session.CallID] = &engineCall{
+		call:      call,
+		callKey:   bytes.Clone(session.CallKey),
+		relay:     rd,
+		selfLID:   session.SelfLID,
+		peerLID:   session.PeerLID,
+		direction: session.Direction,
+		codec:     session.Codec,
+		answered:  true,
+		started:   true,
+		cancel:    cancel,
+	}
+	mc := &MediaCall{eng: e, call: call, cancel: cancel, done: make(chan struct{})}
+	runKey := bytes.Clone(session.CallKey)
+	inbound := session.Direction == CallDirectionIncoming
+	c.log.Info().Str("call_id", session.CallID).Int("relay_endpoints", len(rd.endpoints)).Msg("starting handed-off media")
+
+	// Source of truth: https://github.com/Hellysonrp/meowcaller/blob/9259460582560c1dcc6da66ec9c94abc15c71b70/datasheets/media-handoff.md#L43
+	go func() {
+		defer close(mc.done)
+		defer clear(runKey)
+		err := e.runMedia(mctx, session.CallID, call, runKey, session.SelfLID, session.PeerLID, rd, inbound)
+		switch {
+		case err == nil:
+			c.log.Info().Str("call_id", session.CallID).Msg("handed-off media ended")
+		case errors.Is(err, context.Canceled):
+			c.log.Info().Str("call_id", session.CallID).Msg("handed-off media stopped")
+		default:
+			c.log.Warn().Err(err).Str("call_id", session.CallID).Msg("handed-off media failed")
+		}
+		mc.err = err
+		e.finishCall(session.CallID, "media ended")
+	}()
+	return mc, nil
 }
 
 // Play attaches a new Player for src as what the peer hears, and returns it.
@@ -68,25 +128,22 @@ func (c *MediaCall) Rekey(peerLID string) error {
 // Stop ends the call's media. Done closes once the media loop has exited.
 func (c *MediaCall) Stop() {
 	// Source of truth: https://github.com/Hellysonrp/meowcaller/blob/9259460582560c1dcc6da66ec9c94abc15c71b70/datasheets/media-handoff.md#L44
-	// TODO
-	// agent suggestion: cancel the media loop's context.
-	// human input:
+	c.cancel()
 }
 
 // Done is closed once the call's media has ended.
 func (c *MediaCall) Done() <-chan struct{} {
 	// Source of truth: https://github.com/Hellysonrp/meowcaller/blob/9259460582560c1dcc6da66ec9c94abc15c71b70/datasheets/media-handoff.md#L43
-	// TODO
-	// agent suggestion: return the done channel.
-	// human input:
-	return nil
+	return c.done
 }
 
 // Err is the media loop's error once Done is closed, and nil before.
 func (c *MediaCall) Err() error {
 	// Source of truth: https://github.com/Hellysonrp/meowcaller/blob/9259460582560c1dcc6da66ec9c94abc15c71b70/datasheets/media-handoff.md#L43
-	// TODO
-	// agent suggestion: the recorded error if done is closed, nil otherwise.
-	// human input:
-	return errNotImplemented
+	select {
+	case <-c.done:
+		return c.err
+	default:
+		return nil
+	}
 }

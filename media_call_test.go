@@ -48,7 +48,6 @@ func waitMediaDone(t *testing.T, mc *MediaCall) {
 }
 
 func TestRunMediaRejectsIncompleteSessions(t *testing.T) {
-	skipMediaHandoffStub(t)
 	cases := map[string]func(*MediaSession){
 		"no call ID":  func(s *MediaSession) { s.CallID = "" },
 		"no call key": func(s *MediaSession) { s.CallKey = nil },
@@ -65,7 +64,6 @@ func TestRunMediaRejectsIncompleteSessions(t *testing.T) {
 }
 
 func TestRunMediaBuildsCallFromSessionAndStops(t *testing.T) {
-	skipMediaHandoffStub(t)
 	session := silentRelaySession(t)
 	wantRelay := session.Relay.relayData()
 
@@ -114,7 +112,6 @@ func TestRunMediaBuildsCallFromSessionAndStops(t *testing.T) {
 }
 
 func TestRunMediaEndsOnCancelledContext(t *testing.T) {
-	skipMediaHandoffStub(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
