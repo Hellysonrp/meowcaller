@@ -203,6 +203,9 @@ func (e *engine) connectAndAllocate(ctx context.Context, rd *relayData, streamSs
 //
 // NOT VALIDATED: live-relay only.
 func (e *engine) runMedia(ctx context.Context, callID string, call *Call, callKey []byte, selfLID, peerLID string, rd *relayData, inbound bool) error {
+	// Source of truth: https://github.com/Hellysonrp/meowcaller/blob/c94a2d54a5179636eff02b57575f2ee8e8372cf6/datasheets/relay-timeout.md#L17-L19
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 	log := e.c.log
 	selfParticipantID := rtp.FormatE2ESrtpParticipantID(selfLID)
 	ssrc, err := rtp.DeriveWasmParticipantSsrc(callID, selfParticipantID, 0, log)
@@ -473,6 +476,17 @@ func (e *engine) runMedia(ctx context.Context, callID string, call *Call, callKe
 	// relayRx counts packets received from the relay, so the silence watchdog can warn if
 	// the relay never answers our allocate.
 	var relayRx atomic.Uint64
+
+	// Source of truth: https://github.com/Hellysonrp/meowcaller/blob/c94a2d54a5179636eff02b57575f2ee8e8372cf6/datasheets/relay-timeout.md#L17-L20
+	// NOT VALIDATED: validated once a live call whose relay leg is cut ends its RunMedia with ErrRelayTimeout.
+	var relayTimedOut atomic.Bool
+	if timeout := e.c.relayTimeout; timeout > 0 {
+		go watchRelay(ctx, &relayRx, timeout, min(time.Second, timeout), func() {
+			relayTimedOut.Store(true)
+			log.Warn().Str("call_id", callID).Dur("timeout", timeout).Msg("relay sent nothing within the relay timeout; ending media")
+			closeCh()
+		})
+	}
 
 	// Inbound calls are torn down by the caller within ~400ms if the relay bind never
 	// comes alive; check at 400ms and 900ms and say so explicitly.
@@ -833,6 +847,10 @@ func (e *engine) runMedia(ctx context.Context, callID string, call *Call, callKe
 			if ctxErr := ctx.Err(); ctxErr != nil {
 				log.Debug().Err(err).Msg("relay receive ended by cancellation")
 				return ctxErr
+			}
+			// Source of truth: https://github.com/Hellysonrp/meowcaller/blob/c94a2d54a5179636eff02b57575f2ee8e8372cf6/datasheets/relay-timeout.md#L20
+			if relayTimedOut.Load() {
+				return ErrRelayTimeout
 			}
 			return fmt.Errorf("relay recv: %w", err)
 		}
@@ -1595,7 +1613,23 @@ func (e *engine) onFirstInboundRTP(callID string, call *Call) {
 // and returns when ctx ends.
 func watchRelay(ctx context.Context, rx *atomic.Uint64, timeout, tick time.Duration, expired func()) {
 	// Source of truth: https://github.com/Hellysonrp/meowcaller/blob/c94a2d54a5179636eff02b57575f2ee8e8372cf6/datasheets/relay-timeout.md#L17-L18
-	// TODO
-	// agent suggestion: tick with a time.Ticker; remember when rx last moved; once it has not moved for timeout call expired and return; return when ctx ends.
-	// human input:
+	ticker := time.NewTicker(tick)
+	defer ticker.Stop()
+	last := rx.Load()
+	lastMoved := time.Now()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case now := <-ticker.C:
+			if v := rx.Load(); v != last {
+				last, lastMoved = v, now
+				continue
+			}
+			if now.Sub(lastMoved) >= timeout {
+				expired()
+				return
+			}
+		}
+	}
 }

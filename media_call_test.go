@@ -55,6 +55,13 @@ func silentRelaySession(t *testing.T) MediaSession {
 // loop is waiting on its receive.
 func quietRelaySession(t *testing.T) (MediaSession, <-chan struct{}) {
 	t.Helper()
+	return loopbackRelaySession(t, 0)
+}
+
+// loopbackRelaySession is quietRelaySession whose relay hangs up after reading
+// closeAfter packets; zero keeps it open.
+func loopbackRelaySession(t *testing.T, closeAfter int) (MediaSession, <-chan struct{}) {
+	t.Helper()
 	cert, err := selfsign.GenerateSelfSigned()
 	if err != nil {
 		t.Fatalf("relay cert: %v", err)
@@ -99,6 +106,9 @@ func quietRelaySession(t *testing.T) (MediaSession, <-chan struct{}) {
 			}
 			if read == 20 {
 				close(flowing)
+			}
+			if closeAfter > 0 && read+1 == closeAfter {
+				return
 			}
 		}
 	}()

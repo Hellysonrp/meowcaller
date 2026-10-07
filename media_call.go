@@ -40,7 +40,8 @@ func RunMedia(ctx context.Context, session MediaSession, opts ...Option) (*Media
 	}
 
 	cfg := resolveConfig(opts)
-	c := &Client{log: cfg.log, diag: cfg.diag}
+	// Source of truth: https://github.com/Hellysonrp/meowcaller/blob/c94a2d54a5179636eff02b57575f2ee8e8372cf6/datasheets/relay-timeout.md#L21
+	c := &Client{log: cfg.log, diag: cfg.diag, relayTimeout: cfg.relayTimeout}
 	e := newEngine(c)
 	c.eng = e
 	call := &Call{eng: e, id: session.CallID, peer: peer, phase: CallPhaseConnecting}

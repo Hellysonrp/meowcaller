@@ -58,6 +58,8 @@ func NewClient(wa *whatsmeow.Client, opts ...Option) *Client {
 	// Source of truth: https://github.com/Hellysonrp/meowcaller/blob/9259460582560c1dcc6da66ec9c94abc15c71b70/datasheets/media-handoff.md#L31
 	c := &Client{
 		wa: wa, log: cfg.log, diag: cfg.diag, mediaHandoff: cfg.mediaHandoff,
+		// Source of truth: https://github.com/Hellysonrp/meowcaller/blob/c94a2d54a5179636eff02b57575f2ee8e8372cf6/datasheets/relay-timeout.md#L21
+		relayTimeout: cfg.relayTimeout,
 		getGroupInfo: wa.GetGroupInfo,
 		ownGroupJIDs: func() []types.JID {
 			return []types.JID{wa.Store.GetJID(), wa.Store.GetLID()}

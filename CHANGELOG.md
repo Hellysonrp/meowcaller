@@ -7,12 +7,18 @@ All notable changes to meowcaller, tracked per module. Format loosely follows
 
 ## [Unreleased]
 
-### engine/relay-timeout — `scaffolded`
+### engine/relay-timeout — `implemented`
 
 - Added the `UNMAPPED` datasheet: `WithRelayTimeout(d)` ends a call's media
   when the relay sends nothing for `d`, with `ErrRelayTimeout`.
 - Scaffolded `WithRelayTimeout`, `ErrRelayTimeout`, the `relayTimeout` fields
   and `watchRelay`; their tests are wired and skipped until the bodies land.
+- Implemented the option, its plumbing through `NewClient` and `RunMedia`, and
+  `watchRelay`; `runMedia` closes the relay channel when the relay is silent
+  for the timeout and returns `ErrRelayTimeout`. The tests are enabled and
+  pass, including `TestRunMediaRelayTimeoutEndsSilentConnectedMedia` against a
+  loopback relay that never sends. The `runMedia` wiring stays `NOT VALIDATED`
+  until a live call whose relay leg is cut ends with `ErrRelayTimeout`.
 
 ### engine/accept-sent — `implemented`
 
