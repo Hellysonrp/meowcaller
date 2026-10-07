@@ -859,6 +859,8 @@ func (e *engine) onPreAccept(ev *events.CallPreAccept) {
 	if m.call != nil && m.call.State() == CallPhaseCalling {
 		m.call.setPhase(CallPhaseRinging)
 	}
+	// Source of truth: https://github.com/Hellysonrp/meowcaller/blob/deca4540fc12e4d012b1ef8cbfc66e9a7b4787b9/datasheets/outgoing-reject.md#L29
+	e.recordPreAccept(ev.CallID, ev.From)
 	if device, ok := inviteDeviceCapability(ev.From, ev.Data); ok {
 		e.mu.Lock()
 		if current := e.calls[ev.CallID]; current != nil {
@@ -985,6 +987,15 @@ func preferQualifiedPeer(current string, signaled types.JID) string {
 func (e *engine) onReject(ev *events.CallReject) {
 	m := e.lookup(ev.CallID)
 	if m == nil {
+		return
+	}
+	// Source of truth: https://github.com/Hellysonrp/meowcaller/blob/deca4540fc12e4d012b1ef8cbfc66e9a7b4787b9/datasheets/outgoing-reject.md#L27-L28
+	// NOT VALIDATED: validated once an outgoing call to a callee with WhatsApp Web linked keeps ringing on the phone and can be answered.
+	if e.ignoresSecondaryReject(ev.CallID, ev.From) {
+		e.c.log.Info().
+			Str("call_id", ev.CallID).
+			Str("from", ev.From.String()).
+			Msg("ignoring reject from secondary device")
 		return
 	}
 	e.c.log.Info().

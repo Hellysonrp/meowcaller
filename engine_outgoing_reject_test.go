@@ -7,11 +7,6 @@ import (
 	"go.mau.fi/whatsmeow/types/events"
 )
 
-func skipOutgoingRejectStub(t *testing.T) {
-	t.Helper()
-	t.Skip("blocked: engine/outgoing-reject is a stub; enable when implemented")
-}
-
 func peerDevice(device uint16) types.JID {
 	jid := peerJID()
 	jid.Device = device
@@ -27,7 +22,6 @@ func rejectFrom(eng *engine, from types.JID) {
 }
 
 func TestSecondaryDeviceRejectBeforePreacceptIsIgnored(t *testing.T) {
-	skipOutgoingRejectStub(t)
 	eng, call := testEngineWithOutgoingCall()
 
 	rejectFrom(eng, peerDevice(22))
@@ -38,7 +32,6 @@ func TestSecondaryDeviceRejectBeforePreacceptIsIgnored(t *testing.T) {
 }
 
 func TestSecondaryDeviceRejectAfterPhonePreacceptIsIgnored(t *testing.T) {
-	skipOutgoingRejectStub(t)
 	eng, call := testEngineWithOutgoingCall()
 
 	preacceptFrom(eng, peerDevice(0))
@@ -50,7 +43,6 @@ func TestSecondaryDeviceRejectAfterPhonePreacceptIsIgnored(t *testing.T) {
 }
 
 func TestPrimaryDeviceRejectEndsOutgoingCall(t *testing.T) {
-	skipOutgoingRejectStub(t)
 	eng, call := testEngineWithOutgoingCall()
 
 	rejectFrom(eng, peerDevice(0))
@@ -61,7 +53,6 @@ func TestPrimaryDeviceRejectEndsOutgoingCall(t *testing.T) {
 }
 
 func TestPreacceptedDeviceRejectEndsOutgoingCall(t *testing.T) {
-	skipOutgoingRejectStub(t)
 	eng, call := testEngineWithOutgoingCall()
 
 	preacceptFrom(eng, peerDevice(0))
@@ -74,7 +65,6 @@ func TestPreacceptedDeviceRejectEndsOutgoingCall(t *testing.T) {
 }
 
 func TestIncomingCallRejectFromSecondaryDeviceEndsCall(t *testing.T) {
-	skipOutgoingRejectStub(t)
 	eng, call, _ := testEngineWithIncomingCall()
 
 	rejectFrom(eng, peerDevice(22))

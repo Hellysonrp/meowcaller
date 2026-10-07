@@ -7,7 +7,7 @@ All notable changes to meowcaller, tracked per module. Format loosely follows
 
 ## [Unreleased]
 
-### engine/outgoing-reject — `scaffolded`
+### engine/outgoing-reject — `implemented`
 
 - Added the `UNMAPPED` datasheet for upstream issue #25: an outgoing 1:1 call
   ends on a reject only from the callee's device 0 or from a device that
@@ -15,6 +15,10 @@ All notable changes to meowcaller, tracked per module. Format loosely follows
 - Scaffolded `recordPreAccept` and `ignoresSecondaryReject` with the
   `engineCall.preAccepted` set; their tests are wired and skipped until the
   bodies land.
+- Implemented the rule in `onPreAccept` and `onReject`; its tests are enabled
+  and pass, and the existing reject tests still pass. `NOT VALIDATED` live
+  until an outgoing call to a callee with WhatsApp Web linked keeps ringing on
+  the phone and can be answered.
 
 ### engine/media-handoff — `implemented`
 
