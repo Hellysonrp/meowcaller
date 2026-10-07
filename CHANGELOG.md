@@ -7,6 +7,12 @@ All notable changes to meowcaller, tracked per module. Format loosely follows
 
 ## [Unreleased]
 
+### engine/media-handoff — `planned`
+
+- Added the `UNMAPPED` datasheet: a client built with `WithMediaHandoff` hands
+  each 1:1 call's media session to a `MediaHandoff` instead of running it, and
+  `RunMedia` runs a handed-off session with no WhatsApp client.
+
 ### build — `implemented`
 
 - Tracks `go.mau.fi/whatsmeow` again instead of the
