@@ -36,6 +36,7 @@ type engine struct {
 	calls           map[string]*engineCall // keyed by call-id
 	sendCallNode    func(context.Context, waBinary.Node) error
 	requestCallNode func(context.Context, waBinary.Node, string) (*waBinary.Node, error)
+	newRequestID    func() string
 	rawCallHookErr  error
 }
 

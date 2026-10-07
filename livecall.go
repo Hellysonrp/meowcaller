@@ -26,6 +26,9 @@ type Call struct {
 	onPeerAccept              func()
 	peerAccepted              bool
 	acceptNotified            bool
+	onAcceptSent              func()
+	acceptSent                bool
+	acceptSentNotified        bool
 	onMuteState               func(muted bool)
 	videoSink                 VideoSink
 	onVideoState              func(VideoState)
@@ -735,6 +738,22 @@ func (c *Call) markPeerAccepted() {
 	if shouldNotify {
 		fn()
 	}
+}
+
+// OnAcceptSent registers a one-shot callback for this client's accept of an incoming
+// call going out. If the accept was already sent, the callback is invoked immediately.
+func (c *Call) OnAcceptSent(fn func()) {
+	// Source of truth: https://github.com/Hellysonrp/meowcaller/blob/583935a75c2b46fc4d57ec72d391ebedaf7b3600/datasheets/accept-sent.md#L17-L21
+	// TODO
+	// agent suggestion: mirror OnPeerAccept: under c.mu store fn and, when the accept was already sent and not yet notified, mark it notified; call fn after unlocking.
+	// human input:
+}
+
+func (c *Call) markAcceptSent() {
+	// Source of truth: https://github.com/Hellysonrp/meowcaller/blob/583935a75c2b46fc4d57ec72d391ebedaf7b3600/datasheets/accept-sent.md#L17-L18
+	// TODO
+	// agent suggestion: mirror markPeerAccepted: under c.mu set acceptSent and, when a callback is registered and not yet notified, mark it notified; call it after unlocking.
+	// human input:
 }
 
 // OnMuteState registers a callback fired for each inbound WhatsApp mute_v2 state.
