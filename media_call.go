@@ -85,44 +85,53 @@ func RunMedia(ctx context.Context, session MediaSession, opts ...Option) (*Media
 // Play attaches a new Player for src as what the peer hears, and returns it.
 func (c *MediaCall) Play(src AudioSource) *Player {
 	// Source of truth: https://github.com/Hellysonrp/meowcaller/blob/9259460582560c1dcc6da66ec9c94abc15c71b70/datasheets/media-handoff.md#L41
-	// TODO
-	// agent suggestion: delegate to the call's Play.
-	// human input:
-	return nil
+	return c.call.Play(src)
 }
 
 // Subscribe attaches p as what the peer hears.
 func (c *MediaCall) Subscribe(p *Player) {
 	// Source of truth: https://github.com/Hellysonrp/meowcaller/blob/9259460582560c1dcc6da66ec9c94abc15c71b70/datasheets/media-handoff.md#L41
-	// TODO
-	// agent suggestion: delegate to the call's Subscribe.
-	// human input:
+	c.call.Subscribe(p)
 }
 
 // Receive attaches sink for the peer's decoded audio.
 func (c *MediaCall) Receive(sink AudioSink) {
 	// Source of truth: https://github.com/Hellysonrp/meowcaller/blob/9259460582560c1dcc6da66ec9c94abc15c71b70/datasheets/media-handoff.md#L41
-	// TODO
-	// agent suggestion: delegate to the call's Receive.
-	// human input:
+	c.call.Receive(sink)
 }
 
 // OnReady registers fn for the call's first inbound audio.
 func (c *MediaCall) OnReady(fn func()) {
 	// Source of truth: https://github.com/Hellysonrp/meowcaller/blob/9259460582560c1dcc6da66ec9c94abc15c71b70/datasheets/media-handoff.md#L41
-	// TODO
-	// agent suggestion: delegate to the call's OnReady.
-	// human input:
+	c.call.OnReady(fn)
 }
 
 // Rekey points the call's inbound media at peerLID, as the signaling side reports it
 // through MediaHandoff.PeerChanged.
 func (c *MediaCall) Rekey(peerLID string) error {
 	// Source of truth: https://github.com/Hellysonrp/meowcaller/blob/9259460582560c1dcc6da66ec9c94abc15c71b70/datasheets/media-handoff.md#L42
-	// TODO
-	// agent suggestion: ignore an empty or unchanged peer; under e.mu fail if the call has ended, else store peerLID and take rekeyPeer; call it after unlocking when the loop has installed it.
-	// human input:
-	return errNotImplemented
+	// NOT VALIDATED: validated once a live call's inbound audio follows a peer change reported after its media started.
+	if peerLID == "" {
+		return nil
+	}
+	e := c.eng
+	e.mu.Lock()
+	m := e.calls[c.call.id]
+	if m == nil {
+		e.mu.Unlock()
+		return errors.New("meowcaller: media call has ended")
+	}
+	if peerLID == m.peerLID {
+		e.mu.Unlock()
+		return nil
+	}
+	m.peerLID = peerLID
+	rekeyPeer := m.rekeyPeer
+	e.mu.Unlock()
+	if rekeyPeer == nil {
+		return nil
+	}
+	return rekeyPeer(peerLID)
 }
 
 // Stop ends the call's media. Done closes once the media loop has exited.

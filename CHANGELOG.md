@@ -7,7 +7,7 @@ All notable changes to meowcaller, tracked per module. Format loosely follows
 
 ## [Unreleased]
 
-### engine/media-handoff — `partial`
+### engine/media-handoff — `implemented`
 
 - Added the `UNMAPPED` datasheet: a client built with `WithMediaHandoff` hands
   each 1:1 call's media session to a `MediaHandoff` instead of running it, and
@@ -24,6 +24,8 @@ All notable changes to meowcaller, tracked per module. Format loosely follows
   WhatsApp client; their tests are enabled and pass. The live relay path is
   `NOT VALIDATED` until a 1:1 call carries audio both ways with its media on a
   different host from its signaling.
+- Implemented `MediaCall`'s audio attachments and `Rekey`; every module test is
+  enabled and passes.
 
 ### build — `implemented`
 

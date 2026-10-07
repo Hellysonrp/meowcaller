@@ -11,11 +11,6 @@ import (
 	"go.mau.fi/whatsmeow/types/events"
 )
 
-func skipMediaHandoffStub(t *testing.T) {
-	t.Helper()
-	t.Skip("blocked: engine/media-handoff is a stub; enable when implemented")
-}
-
 type recordingHandoff struct {
 	sessions         []MediaSession
 	peers            []string

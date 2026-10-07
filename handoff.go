@@ -1,12 +1,6 @@
 package meowcaller
 
-import (
-	"bytes"
-	"errors"
-)
-
-// errNotImplemented is returned by scaffolded bodies that have not landed yet.
-var errNotImplemented = errors.New("meowcaller: not implemented")
+import "bytes"
 
 // MediaHandoff receives a 1:1 call's media session in place of the engine running it.
 type MediaHandoff interface {

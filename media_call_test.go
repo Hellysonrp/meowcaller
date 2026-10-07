@@ -127,7 +127,6 @@ func TestRunMediaEndsOnCancelledContext(t *testing.T) {
 }
 
 func TestMediaCallAttachesAudio(t *testing.T) {
-	skipMediaHandoffStub(t)
 	mc, err := RunMedia(context.Background(), silentRelaySession(t))
 	if err != nil {
 		t.Fatalf("RunMedia: %v", err)
@@ -145,7 +144,6 @@ func TestMediaCallAttachesAudio(t *testing.T) {
 }
 
 func TestMediaCallRekeyBeforeLoopUpdatesPeer(t *testing.T) {
-	skipMediaHandoffStub(t)
 	mc, err := RunMedia(context.Background(), silentRelaySession(t))
 	if err != nil {
 		t.Fatalf("RunMedia: %v", err)
@@ -173,7 +171,6 @@ func TestMediaCallRekeyBeforeLoopUpdatesPeer(t *testing.T) {
 }
 
 func TestMediaCallRekeyAfterEndFails(t *testing.T) {
-	skipMediaHandoffStub(t)
 	mc, err := RunMedia(context.Background(), silentRelaySession(t))
 	if err != nil {
 		t.Fatalf("RunMedia: %v", err)
