@@ -68,7 +68,6 @@ func testEngineWithHandoff(h MediaHandoff, direction CallDirection) (*engine, *C
 }
 
 func TestMediaSessionRelayRoundTrip(t *testing.T) {
-	skipMediaHandoffStub(t)
 	rd := parseRelayData(handoffTestRelay())
 
 	session := newMediaSessionRelay(rd)

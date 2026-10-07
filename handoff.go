@@ -1,6 +1,9 @@
 package meowcaller
 
-import "errors"
+import (
+	"bytes"
+	"errors"
+)
 
 // errNotImplemented is returned by scaffolded bodies that have not landed yet.
 var errNotImplemented = errors.New("meowcaller: not implemented")
@@ -62,26 +65,62 @@ func WithMediaHandoff(h MediaHandoff) Option {
 
 func newMediaSessionRelay(rd *relayData) MediaSessionRelay {
 	// Source of truth: https://github.com/Hellysonrp/meowcaller/blob/9259460582560c1dcc6da66ec9c94abc15c71b70/datasheets/media-handoff.md#L37-L38
-	// TODO
-	// agent suggestion: copy the relay key, the indexed tokens (nil gaps kept) and every endpoint and address field for field, cloning each byte slice; leave peerJID out.
-	// human input:
-	return MediaSessionRelay{}
+	if rd == nil {
+		return MediaSessionRelay{}
+	}
+	out := MediaSessionRelay{
+		Key:    bytes.Clone(rd.relayKeyASCII),
+		Tokens: cloneByteSlices(rd.relayTokens),
+	}
+	for _, ep := range rd.endpoints {
+		endpoint := MediaSessionEndpoint{
+			RelayID:     ep.relayID,
+			RelayName:   ep.relayName,
+			TokenID:     ep.tokenID,
+			AuthTokenID: ep.authTokenID,
+			IsFNA:       ep.isFNA,
+		}
+		for _, addr := range ep.addresses {
+			endpoint.Addresses = append(endpoint.Addresses, MediaSessionAddress{IPv4: addr.ipv4, Port: addr.port})
+		}
+		out.Endpoints = append(out.Endpoints, endpoint)
+	}
+	return out
 }
 
 func (r MediaSessionRelay) relayData() *relayData {
 	// Source of truth: https://github.com/Hellysonrp/meowcaller/blob/9259460582560c1dcc6da66ec9c94abc15c71b70/datasheets/media-handoff.md#L37-L38
-	// TODO
-	// agent suggestion: the inverse of newMediaSessionRelay, cloning each byte slice; peerJID stays zero.
-	// human input:
-	return &relayData{}
+	rd := &relayData{
+		relayKeyASCII: bytes.Clone(r.Key),
+		relayTokens:   cloneByteSlices(r.Tokens),
+	}
+	for _, endpoint := range r.Endpoints {
+		ep := relayEndpoint{
+			relayID:     endpoint.RelayID,
+			relayName:   endpoint.RelayName,
+			tokenID:     endpoint.TokenID,
+			authTokenID: endpoint.AuthTokenID,
+			isFNA:       endpoint.IsFNA,
+		}
+		for _, addr := range endpoint.Addresses {
+			ep.addresses = append(ep.addresses, relayAddress{ipv4: addr.IPv4, port: addr.Port})
+		}
+		rd.endpoints = append(rd.endpoints, ep)
+	}
+	return rd
 }
 
 func mediaSessionLocked(callID string, m *engineCall) MediaSession {
 	// Source of truth: https://github.com/Hellysonrp/meowcaller/blob/9259460582560c1dcc6da66ec9c94abc15c71b70/datasheets/media-handoff.md#L37-L38
-	// TODO
-	// agent suggestion: callID, a clone of m.callKey, m.selfLID, m.peerLID, m.direction, m.codec and newMediaSessionRelay(m.relay).
-	// human input:
-	return MediaSession{}
+	return MediaSession{
+		CallID:    callID,
+		CallKey:   bytes.Clone(m.callKey),
+		SelfLID:   m.selfLID,
+		PeerLID:   m.peerLID,
+		Direction: m.direction,
+		Codec:     m.codec,
+		Relay:     newMediaSessionRelay(m.relay),
+	}
 }
 
 // prepareHandoffLocked marks callID's media started and prepares its handoff to h. The

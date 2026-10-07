@@ -7,7 +7,7 @@ All notable changes to meowcaller, tracked per module. Format loosely follows
 
 ## [Unreleased]
 
-### engine/media-handoff — `scaffolded`
+### engine/media-handoff — `partial`
 
 - Added the `UNMAPPED` datasheet: a client built with `WithMediaHandoff` hands
   each 1:1 call's media session to a `MediaHandoff` instead of running it, and
@@ -15,6 +15,8 @@ All notable changes to meowcaller, tracked per module. Format loosely follows
 - Scaffolded `MediaHandoff`, `MediaSession` and its relay types,
   `WithMediaHandoff`, the session conversion, `RunMedia` and `MediaCall`; their
   tests are wired and skipped until the bodies land.
+- Implemented the relay conversion and the session snapshot; the relay
+  round-trip test is enabled and passes.
 
 ### build — `implemented`
 
