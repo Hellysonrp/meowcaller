@@ -17,6 +17,9 @@ All notable changes to meowcaller, tracked per module. Format loosely follows
   tests are wired and skipped until the bodies land.
 - Implemented the relay conversion and the session snapshot; the relay
   round-trip test is enabled and passes.
+- Implemented the signaling side: `maybeStartMedia` hands a ready 1:1 call to
+  the `MediaHandoff` once, outside the engine lock, forwards later peer
+  changes, and starts no media for group calls; its tests are enabled and pass.
 
 ### build — `implemented`
 

@@ -57,10 +57,7 @@ type MediaSessionAddress struct {
 // running the media itself.
 func WithMediaHandoff(h MediaHandoff) Option {
 	// Source of truth: https://github.com/Hellysonrp/meowcaller/blob/9259460582560c1dcc6da66ec9c94abc15c71b70/datasheets/media-handoff.md#L31
-	// TODO
-	// agent suggestion: return an Option that stores h in config.mediaHandoff; NewClient copies it onto the Client.
-	// human input:
-	return func(*config) {}
+	return func(c *config) { c.mediaHandoff = h }
 }
 
 func newMediaSessionRelay(rd *relayData) MediaSessionRelay {
@@ -127,8 +124,38 @@ func mediaSessionLocked(callID string, m *engineCall) MediaSession {
 // caller holds e.mu and runs the returned func after releasing it.
 func (e *engine) prepareHandoffLocked(callID string, m *engineCall, h MediaHandoff) func() {
 	// Source of truth: https://github.com/Hellysonrp/meowcaller/blob/9259460582560c1dcc6da66ec9c94abc15c71b70/datasheets/media-handoff.md#L31-L36
-	// TODO
-	// agent suggestion: set m.started; for a group call return a func that only logs at debug; otherwise build the session, point m.rekeyPeer at h.PeerChanged, and return a func that applies the Connecting rule (a ringing inbound call stays Ringing), logs the endpoint count and calls h.StartMedia.
-	// human input:
-	return func() {}
+	m.started = true
+	if m.group {
+		return func() {
+			e.c.log.Debug().Str("call_id", callID).Msg("media handoff skips a group call")
+		}
+	}
+	session := mediaSessionLocked(callID, m)
+	call := m.call
+	inbound := m.direction == CallDirectionIncoming
+	forward := func(peerLID string) error {
+		h.PeerChanged(callID, peerLID)
+		return nil
+	}
+	return func() {
+		if call != nil && !(inbound && call.State() == CallPhaseRinging) {
+			call.setPhase(CallPhaseConnecting)
+		}
+		e.c.log.Info().Str("call_id", callID).Int("relay_endpoints", len(session.Relay.Endpoints)).Msg("handing media off")
+		h.StartMedia(session)
+
+		// The hook goes in only after StartMedia returns, as runMedia does after its
+		// relay connects, so no PeerChanged precedes the session; a peer change in
+		// between is read back from m.peerLID.
+		e.mu.Lock()
+		current := session.PeerLID
+		if m := e.calls[callID]; m != nil {
+			m.rekeyPeer = forward
+			current = m.peerLID
+		}
+		e.mu.Unlock()
+		if current != "" && current != session.PeerLID {
+			h.PeerChanged(callID, current)
+		}
+	}
 }

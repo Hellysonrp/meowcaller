@@ -67,6 +67,13 @@ func (e *engine) maybeStartMedia(callID string) {
 		e.mu.Unlock()
 		return
 	}
+	// Source of truth: https://github.com/Hellysonrp/meowcaller/blob/9259460582560c1dcc6da66ec9c94abc15c71b70/datasheets/media-handoff.md#L31-L32
+	if h := e.c.mediaHandoff; h != nil {
+		handOff := e.prepareHandoffLocked(callID, m, h)
+		e.mu.Unlock()
+		handOff()
+		return
+	}
 	rd := m.relay
 	if m.group {
 		groupRelay, err := groupRelayData(*m.groupUpdate, m.direction == CallDirectionIncoming)

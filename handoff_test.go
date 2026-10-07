@@ -17,19 +17,26 @@ func skipMediaHandoffStub(t *testing.T) {
 }
 
 type recordingHandoff struct {
-	sessions []MediaSession
-	peers    []string
-	onStart  func()
+	sessions         []MediaSession
+	peers            []string
+	onStart          func()
+	starting         bool
+	peersDuringStart int
 }
 
 func (h *recordingHandoff) StartMedia(session MediaSession) {
 	h.sessions = append(h.sessions, session)
+	h.starting = true
 	if h.onStart != nil {
 		h.onStart()
 	}
+	h.starting = false
 }
 
 func (h *recordingHandoff) PeerChanged(callID, peerLID string) {
+	if h.starting {
+		h.peersDuringStart++
+	}
 	h.peers = append(h.peers, callID+" "+peerLID)
 }
 
@@ -84,7 +91,6 @@ func TestMediaSessionRelayRoundTrip(t *testing.T) {
 }
 
 func TestMediaHandoffStartsIncomingMediaOnce(t *testing.T) {
-	skipMediaHandoffStub(t)
 	h := &recordingHandoff{}
 	eng, call := testEngineWithHandoff(h, CallDirectionIncoming)
 
@@ -116,7 +122,6 @@ func TestMediaHandoffStartsIncomingMediaOnce(t *testing.T) {
 }
 
 func TestMediaHandoffStartsOutgoingMediaAsConnecting(t *testing.T) {
-	skipMediaHandoffStub(t)
 	h := &recordingHandoff{}
 	eng, call := testEngineWithHandoff(h, CallDirectionOutgoing)
 
@@ -131,7 +136,6 @@ func TestMediaHandoffStartsOutgoingMediaAsConnecting(t *testing.T) {
 }
 
 func TestMediaHandoffSessionOwnsItsBytes(t *testing.T) {
-	skipMediaHandoffStub(t)
 	h := &recordingHandoff{}
 	eng, _ := testEngineWithHandoff(h, CallDirectionIncoming)
 	eng.maybeStartMedia("CID")
@@ -148,7 +152,6 @@ func TestMediaHandoffSessionOwnsItsBytes(t *testing.T) {
 }
 
 func TestMediaHandoffForwardsPeerChange(t *testing.T) {
-	skipMediaHandoffStub(t)
 	h := &recordingHandoff{}
 	eng, call := testEngineWithHandoff(h, CallDirectionOutgoing)
 	eng.maybeStartMedia("CID")
@@ -166,7 +169,6 @@ func TestMediaHandoffForwardsPeerChange(t *testing.T) {
 }
 
 func TestMediaHandoffSessionCarriesPeerChangedBeforeStart(t *testing.T) {
-	skipMediaHandoffStub(t)
 	h := &recordingHandoff{}
 	eng, call := testEngineWithHandoff(h, CallDirectionOutgoing)
 	m := eng.calls["CID"]
@@ -192,8 +194,29 @@ func TestMediaHandoffSessionCarriesPeerChangedBeforeStart(t *testing.T) {
 	}
 }
 
+func TestMediaHandoffPeerChangeDuringStartMediaFollowsIt(t *testing.T) {
+	h := &recordingHandoff{}
+	eng, call := testEngineWithHandoff(h, CallDirectionOutgoing)
+	answering := peerJID()
+	answering.Device = 7
+	h.onStart = func() {
+		eng.onAccept(&events.CallAccept{
+			BasicCallMeta: types.BasicCallMeta{CallID: call.ID(), From: answering},
+			Data:          &waBinary.Node{Tag: "accept"},
+		})
+	}
+
+	eng.maybeStartMedia("CID")
+
+	if h.peersDuringStart != 0 {
+		t.Fatal("PeerChanged ran before StartMedia returned")
+	}
+	if want := []string{"CID " + answering.String()}; !reflect.DeepEqual(h.peers, want) {
+		t.Fatalf("peer changes = %q, want %q", h.peers, want)
+	}
+}
+
 func TestMediaHandoffRunsOutsideEngineLock(t *testing.T) {
-	skipMediaHandoffStub(t)
 	h := &recordingHandoff{}
 	eng, _ := testEngineWithHandoff(h, CallDirectionIncoming)
 	h.onStart = func() {
@@ -215,7 +238,6 @@ func TestMediaHandoffRunsOutsideEngineLock(t *testing.T) {
 }
 
 func TestMediaHandoffSkipsGroupCalls(t *testing.T) {
-	skipMediaHandoffStub(t)
 	h := &recordingHandoff{}
 	eng, _ := testEngineWithHandoff(h, CallDirectionIncoming)
 	m := eng.calls["CID"]
