@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"io"
 	"math"
-	"net"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -120,80 +119,6 @@ func (e *engine) maybeStartMedia(callID string) {
 	}()
 }
 
-// connectAndAllocate opens the relay DataChannel and sends the STUN allocate, returning
-// the channel and the allocate bytes (re-sent by the keepalive).
-//
-// NOT VALIDATED: live-relay only.
-func (e *engine) connectAndAllocate(ctx context.Context, rd *relayData, streamSsrcs [9]uint32, inbound bool) (*relay.RelayMediaChannel, []byte, error) {
-	log := e.c.log
-	ep := getMediaRelayEndpoint(rd, inbound)
-	if ep == nil || len(ep.addresses) == 0 {
-		return nil, nil, fmt.Errorf("relay has no usable endpoint")
-	}
-	addr := &net.UDPAddr{IP: net.ParseIP(ep.addresses[0].ipv4), Port: int(ep.addresses[0].port)}
-	log.Info().Str("relay_name", ep.relayName).Str("addr", addr.String()).Msg("connecting media transport to relay")
-	e.c.diag.Emit("relay", map[string]any{
-		"event": "endpoint", "relay_name": ep.relayName,
-		"ipv4": ep.addresses[0].ipv4, "port": ep.addresses[0].port, "token_id": ep.tokenID,
-	})
-
-	type result struct {
-		ch  *relay.RelayMediaChannel
-		err error
-	}
-	done := make(chan result, 1)
-	go func() {
-		ch, err := relay.ConnectRelayMedia(addr, relay.WithLogger(log))
-		done <- result{ch, err}
-	}()
-	var ch *relay.RelayMediaChannel
-	select {
-	case r := <-done:
-		if r.err != nil {
-			return nil, nil, fmt.Errorf("relay connect: %w", r.err)
-		}
-		ch = r.ch
-	case <-time.After(12 * time.Second):
-		return nil, nil, fmt.Errorf("relay connect timed out (DTLS didn't complete)")
-	case <-ctx.Done():
-		return nil, nil, ctx.Err()
-	}
-	log.Info().Str("relay_name", ep.relayName).Msg("relay DataChannel open")
-
-	if int(ep.tokenID) >= len(rd.relayTokens) || rd.relayTokens[ep.tokenID] == nil {
-		ch.Close()
-		return nil, nil, fmt.Errorf("no relay token #%d", ep.tokenID)
-	}
-	if len(rd.relayKeyASCII) == 0 {
-		ch.Close()
-		return nil, nil, fmt.Errorf("relay has no <key>")
-	}
-	e.c.diag.Emit("relay", map[string]any{
-		"event": "keying", "token_id": ep.tokenID, "token_count": len(rd.relayTokens),
-		"relay_key_bytes": len(rd.relayKeyASCII),
-		"token_bytes":     len(rd.relayTokens[ep.tokenID]),
-	})
-	endpointXor, ok := stun.EncodeXorRelayEndpoint(ep.addresses[0].ipv4, ep.addresses[0].port, log)
-	if !ok {
-		ch.Close()
-		return nil, nil, fmt.Errorf("bad endpoint XOR")
-	}
-	var tx [12]byte
-	_, _ = rand.Read(tx[:])
-	allocate := stun.BuildWasmStunAllocateRequestWithStreamSsrcs(tx, rd.relayTokens[ep.tokenID], endpointXor, streamSsrcs, rd.relayKeyASCII, log)
-	if _, err := ch.Send(allocate); err != nil {
-		ch.Close()
-		return nil, nil, fmt.Errorf("allocate send: %w", err)
-	}
-	log.Info().Int("bytes", len(allocate)).Msg("sent STUN allocate")
-	e.c.diag.Emit("stun", map[string]any{
-		"event": "allocate_sent", "bytes": len(allocate),
-		"tx_id_hex":    hex.EncodeToString(tx[:]),
-		"stream_ssrcs": streamSsrcs,
-	})
-	return ch, allocate, nil
-}
-
 // runMedia runs the per-frame media loop over the relay DataChannel: the Player's frames
 // (or silence) → MLow → E2E-SRTP protect → DataChannel, and DataChannel → classify →
 // unprotect → MLow decode → the Call's sink. A 1 Hz allocate+ping keepalive holds the
@@ -236,35 +161,41 @@ func (e *engine) runMedia(ctx context.Context, callID string, call *Call, callKe
 	if err != nil {
 		return err
 	}
-	ch, allocate, err := e.connectAndAllocate(ctx, rd, streamSsrcs, inbound)
-	if err != nil {
-		return err
+	hbhFEC := [2]uint32{hbhFECTXSSRC, hbhFECRXSSRC}
+	// Source of truth: https://github.com/Hellysonrp/meowcaller/blob/3c3a9e04ec5b78165c1cf5ceedbe7335ca304fab/datasheets/multi-relay.md#L28
+	// Source of truth: https://github.com/Hellysonrp/meowcaller/blob/3c3a9e04ec5b78165c1cf5ceedbe7335ca304fab/datasheets/multi-relay.md#L35
+	e.mu.Lock()
+	groupCall := e.calls[callID] != nil && e.calls[callID].group
+	e.mu.Unlock()
+	// Every connection sends its own allocate and consent ping as it opens, BEFORE any RTP:
+	// the relay won't forward the peer's media until consent (ping → pong) is established.
+	var relays *relaySet
+	if groupCall {
+		ep := getMediaRelayEndpoint(rd, inbound)
+		if ep == nil {
+			return errors.New("relay has no usable endpoint")
+		}
+		dialCtx, cancel := context.WithTimeout(ctx, relayConnectTimeout)
+		conn, err := e.openRelayConn(dialCtx, rd, ep, streamSsrcs, hbhFEC)
+		cancel()
+		if err != nil {
+			return err
+		}
+		relays = newRelaySet()
+		relays.add(conn)
+		relays.pin(conn)
+	} else {
+		relays, err = e.connectRelays(ctx, rd, streamSsrcs, hbhFEC)
+		if err != nil {
+			return err
+		}
 	}
 	// Source of truth: https://github.com/Hellysonrp/meowcaller/blob/9259460582560c1dcc6da66ec9c94abc15c71b70/datasheets/media-handoff.md#L43-L44
-	// ch.Recv does not watch ctx: closing the channel on cancel is what ends a blocked receive.
-	closeCh := sync.OnceFunc(func() { _ = ch.Close() })
+	// relays.Recv does not watch ctx: closing the set on cancel is what ends a blocked receive.
+	closeCh := sync.OnceFunc(func() { _ = relays.Close() })
 	defer closeCh()
 	stopCloseOnCancel := context.AfterFunc(ctx, closeCh)
 	defer stopCloseOnCancel()
-	allocateState := newGroupRelayAllocateStateWithHBHFEC(
-		allocate,
-		rd.relayKeyASCII,
-		[2]uint32{hbhFECTXSSRC, hbhFECRXSSRC},
-	)
-
-	// Send a consent ping (0x0801) immediately, together with the allocate and BEFORE any
-	// RTP. The relay won't forward the peer's media until consent (ping → pong) is
-	// established; RTP sent before the first ping is dropped and the relay never bridges.
-	{
-		var ptx [12]byte
-		_, _ = rand.Read(ptx[:])
-		initPing := stun.BuildWhatsappPing(ptx, log)
-		_, _ = ch.Send(initPing[:])
-		e.c.diag.Emit("stun", map[string]any{
-			"event": "consent_ping_sent", "tx_id_hex": hex.EncodeToString(ptx[:]),
-			"ping_hex": hex.EncodeToString(initPing[:]),
-		})
-	}
 
 	log.Info().
 		Str("self_lid", selfLID).
@@ -522,6 +453,7 @@ func (e *engine) runMedia(ctx context.Context, callID string, call *Call, callKe
 			_, _ = rand.Read(tx[:])
 			ping := stun.BuildWhatsappPing(tx, log)
 			allocateSent := false
+			var groupConn *relayConn
 			e.mu.Lock()
 			currentCall := e.calls[callID]
 			if currentCall != nil && currentCall.group {
@@ -539,19 +471,22 @@ func (e *engine) runMedia(ctx context.Context, callID string, call *Call, callKe
 				e.mu.Unlock()
 				if update != nil && update.Relay != nil {
 					var relayTx [12]byte
-					if _, err := rand.Read(relayTx[:]); err == nil {
-						endpoint := getMediaRelayEndpoint(rd, inbound)
-						allocateSent, err = allocateState.ApplyWithSubscriptions(
+					endpoint := getMediaRelayEndpoint(rd, inbound)
+					// Source of truth: https://github.com/Hellysonrp/meowcaller/blob/3c3a9e04ec5b78165c1cf5ceedbe7335ca304fab/datasheets/multi-relay.md#L35
+					// The group allocate names endpoint, so it goes on that relay's connection,
+					// which carries the group's media from then on.
+					if groupConn = relays.byEndpoint(endpoint); groupConn == nil {
+						log.Warn().Str("call_id", callID).Msg("group relay allocation skipped: its relay has no open connection")
+					} else if _, err := rand.Read(relayTx[:]); err == nil {
+						relays.pin(groupConn)
+						allocateSent, err = groupConn.allocate.ApplyWithSubscriptions(
 							endpoint,
 							update.Relay,
 							streamSsrcs,
 							appDataSelfSsrc,
 							connectedRemoteParticipantPIDs(*update, audioReceivers.selfID),
 							relayTx,
-							func(packet []byte) error {
-								_, sendErr := ch.Send(packet)
-								return sendErr
-							},
+							groupConn.send,
 						)
 						if err != nil {
 							log.Warn().Err(err).Str("call_id", callID).Msg("failed to refresh group relay allocation")
@@ -570,15 +505,14 @@ func (e *engine) runMedia(ctx context.Context, callID string, call *Call, callKe
 					audioPlayoutMu.Unlock()
 				}
 			}
-			if !allocateSent {
-				if err := allocateState.SendCurrent(func(packet []byte) error {
-					_, sendErr := ch.Send(packet)
-					return sendErr
-				}); err != nil {
-					return
+			// Source of truth: https://github.com/Hellysonrp/meowcaller/blob/3c3a9e04ec5b78165c1cf5ceedbe7335ca304fab/datasheets/multi-relay.md#L31
+			// A connection whose send fails is left to its reader, which drops it from the set.
+			relays.each(func(c *relayConn) {
+				if !allocateSent || c != groupConn {
+					_ = c.allocate.SendCurrent(c.send)
 				}
-			}
-			_, _ = ch.Send(ping[:])
+				_ = c.send(ping[:])
+			})
 			tickCount++
 			e.c.diag.Emit("stun", map[string]any{
 				"event": "keepalive", "tick": tickCount,
@@ -596,7 +530,7 @@ func (e *engine) runMedia(ctx context.Context, callID string, call *Call, callKe
 		silence := make([]float32, FrameSamples)
 		ticker := time.NewTicker(frameInterval)
 		defer ticker.Stop()
-		var txCount uint64
+		var txCount, sendFailures uint64
 		for {
 			select {
 			case <-ctx.Done():
@@ -621,8 +555,15 @@ func (e *engine) runMedia(ctx context.Context, callID string, call *Call, callKe
 				"frame": txCount, "frame_samples": len(frame), "pcm_rms": rmsFloat32(frame),
 				"payload_len": len(payload), "packet_len": len(packet),
 			})
-			if _, err := ch.Send(packet); err != nil {
-				return
+			// Source of truth: https://github.com/Hellysonrp/meowcaller/blob/3c3a9e04ec5b78165c1cf5ceedbe7335ca304fab/datasheets/multi-relay.md#L33
+			if _, err := relays.Send(packet); err != nil {
+				if errors.Is(err, errRelaySetClosed) {
+					return
+				}
+				if sendFailures++; sendFailures == 1 {
+					log.Warn().Err(err).Msg("audio RTP send failed; skipping the packet")
+				}
+				continue
 			}
 			if txCount++; txCount == 1 {
 				log.Info().Int("bytes", len(packet)).Msg("first RTP sent to relay, outbound media flowing")
@@ -684,9 +625,10 @@ func (e *engine) runMedia(ctx context.Context, callID string, call *Call, callKe
 	if err = audioReceivers.attachSRTCPSender(videoRtcp); err != nil {
 		return fmt.Errorf("attach video SRTCP sender: %w", err)
 	}
+	// Source of truth: https://github.com/Hellysonrp/meowcaller/blob/3c3a9e04ec5b78165c1cf5ceedbe7335ca304fab/datasheets/multi-relay.md#L33
 	vsender := &videoSender{
 		pipe: txVideoPipe, stream: rtp.NewVideoRtpStream(videoSelfSsrc, defaultVideoRtpStepSamples),
-		ch: ch, ssrc: videoSelfSsrc, callID: callID, keyframeRequired: true,
+		ch: relays, ssrc: videoSelfSsrc, callID: callID, keyframeRequired: true,
 		log: log, diag: e.c.diag,
 	}
 	txAppDataPipe, err := NewMediaPipeline(callKey, selfLID, peerLID, appDataSelfSsrc, FrameSamples, WithLogger(log))
@@ -703,7 +645,8 @@ func (e *engine) runMedia(ctx context.Context, callID string, call *Call, callKe
 				"ts": header.Timestamp, "pt": header.PayloadType, "bytes": len(packet),
 			})
 		}
-		return ch.Send(packet)
+		// Source of truth: https://github.com/Hellysonrp/meowcaller/blob/3c3a9e04ec5b78165c1cf5ceedbe7335ca304fab/datasheets/multi-relay.md#L33
+		return relays.Send(packet)
 	})
 	e.mu.Lock()
 	if m := e.calls[callID]; m != nil {
@@ -744,17 +687,20 @@ func (e *engine) runMedia(ctx context.Context, callID string, call *Call, callKe
 		if _, err := rand.Read(relayTx[:]); err != nil {
 			return fmt.Errorf("generate group relay transaction ID: %w", err)
 		}
-		_, err = allocateState.ApplyWithSubscriptions(
+		// Source of truth: https://github.com/Hellysonrp/meowcaller/blob/3c3a9e04ec5b78165c1cf5ceedbe7335ca304fab/datasheets/multi-relay.md#L35
+		groupConn := relays.byEndpoint(getMediaRelayEndpoint(rd, inbound))
+		if groupConn == nil {
+			return errors.New("meowcaller: the group relay has no open connection")
+		}
+		relays.pin(groupConn)
+		_, err = groupConn.allocate.ApplyWithSubscriptions(
 			getMediaRelayEndpoint(rd, inbound),
 			update.Relay,
 			streamSsrcs,
 			appDataSelfSsrc,
 			connectedRemoteParticipantPIDs(*update, audioReceivers.selfID),
 			relayTx,
-			func(packet []byte) error {
-				_, sendErr := ch.Send(packet)
-				return sendErr
-			},
+			groupConn.send,
 		)
 		if err != nil {
 			return fmt.Errorf("send initial group relay allocation: %w", err)
@@ -772,7 +718,7 @@ func (e *engine) runMedia(ctx context.Context, callID string, call *Call, callKe
 	go func() {
 		ticker := time.NewTicker(1500 * time.Millisecond)
 		defer ticker.Stop()
-		var sent uint64
+		var sent, reportFailures uint64
 		for {
 			select {
 			case <-ctx.Done():
@@ -789,6 +735,11 @@ func (e *engine) runMedia(ctx context.Context, callID string, call *Call, callKe
 					audioReception.Retain(audioReceivers.ActiveAudioSSRCs())
 					videoReception.Retain(audioReceivers.ActiveVideoSSRCs())
 				}
+				// Source of truth: https://github.com/Hellysonrp/meowcaller/blob/3c3a9e04ec5b78165c1cf5ceedbe7335ca304fab/datasheets/multi-relay.md#L33
+				sendReport := func(packet []byte) error {
+					_, sendErr := relays.Send(packet)
+					return sendErr
+				}
 				audioReports := audioReception.Reports(nowMs)
 				_, err := sendMediaSrtcpReceptionReports(
 					audioRtcp,
@@ -796,16 +747,18 @@ func (e *engine) runMedia(ctx context.Context, callID string, call *Call, callKe
 					nowMs,
 					audioReports,
 					groupMode.Load() && audioReceivers.HasCommittedGroupUpdate(),
-					func(packet []byte) error {
-						_, sendErr := ch.Send(packet)
-						return sendErr
-					},
+					sendReport,
 				)
-				if err != nil {
+				if errors.Is(err, errRelaySetClosed) {
 					return
 				}
+				if err != nil {
+					if reportFailures++; reportFailures == 1 {
+						log.Warn().Err(err).Msg("SRTCP report send failed; skipping this tick")
+					}
+				}
 				videoStats := txVideoPipe.SenderStats()
-				if videoStats.PacketsSent > 0 {
+				if err == nil && videoStats.PacketsSent > 0 {
 					videoReports := videoReception.Reports(nowMs)
 					_, err = sendMediaSrtcpReceptionReports(
 						videoRtcp,
@@ -813,13 +766,15 @@ func (e *engine) runMedia(ctx context.Context, callID string, call *Call, callKe
 						nowMs,
 						videoReports,
 						groupMode.Load() && audioReceivers.HasCommittedGroupUpdate(),
-						func(packet []byte) error {
-							_, sendErr := ch.Send(packet)
-							return sendErr
-						},
+						sendReport,
 					)
-					if err != nil {
+					if errors.Is(err, errRelaySetClosed) {
 						return
+					}
+					if err != nil {
+						if reportFailures++; reportFailures == 1 {
+							log.Warn().Err(err).Msg("SRTCP report send failed; skipping this tick")
+						}
 					}
 				}
 				sent++
@@ -835,13 +790,15 @@ func (e *engine) runMedia(ctx context.Context, callID string, call *Call, callKe
 		}
 	}()
 
-	buf := make([]byte, 1500)
+	buf := make([]byte, relayRecvBufferBytes)
+	// Source of truth: https://github.com/Hellysonrp/meowcaller/blob/3c3a9e04ec5b78165c1cf5ceedbe7335ca304fab/datasheets/multi-relay.md#L32
+	duplicates := newRTPDuplicates()
 	var rtpIn, rtpSeen, unprotectFail, rtpInspect, vidIn, appDataIn, appDataUnprotectFail, videoUnprotectFail, videoFrameIn, videoSinkMissing, rtcpIn, rtcpAuthFail, groupForwardingInvalid uint64
 	for {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		n, err := ch.Recv(buf)
+		n, conn, err := relays.Recv(buf)
 		if err != nil {
 			// Source of truth: https://github.com/Hellysonrp/meowcaller/blob/9259460582560c1dcc6da66ec9c94abc15c71b70/datasheets/media-handoff.md#L43-L44
 			if ctxErr := ctx.Err(); ctxErr != nil {
@@ -927,12 +884,11 @@ func (e *engine) runMedia(ctx context.Context, callID string, call *Call, callKe
 		case relay.RelayPacketStun:
 			mt, isStun := stun.StunMessageType(pkt)
 			if isStun && mt == stun.MsgBindingRequest {
-				resp, answered, err := allocateState.SendBindingSuccess(pkt, func(packet []byte) error {
-					_, sendErr := ch.Send(packet)
-					return sendErr
-				})
+				// Source of truth: https://github.com/Hellysonrp/meowcaller/blob/3c3a9e04ec5b78165c1cf5ceedbe7335ca304fab/datasheets/multi-relay.md#L31
+				resp, answered, err := conn.allocate.SendBindingSuccess(pkt, conn.send)
 				if err != nil {
-					return fmt.Errorf("relay send binding-success: %w", err)
+					log.Warn().Err(err).Str("relay_name", conn.name).Msg("relay send binding-success failed")
+					continue
 				}
 				if answered {
 					e.c.diag.Emit("stun", map[string]any{
@@ -964,6 +920,13 @@ func (e *engine) runMedia(ctx context.Context, callID string, call *Call, callKe
 		if !vok {
 			continue
 		}
+		// Source of truth: https://github.com/Hellysonrp/meowcaller/blob/3c3a9e04ec5b78165c1cf5ceedbe7335ca304fab/datasheets/multi-relay.md#L32
+		// A copy of a packet already processed is dropped; a packet is marked once it
+		// authenticated, so a copy that does not authenticate never blocks a valid one.
+		rtpSSRC, rtpSeq := vh.Ssrc, vh.SequenceNumber
+		if duplicates.has(rtpSSRC, rtpSeq) {
+			continue
+		}
 		kind := classifyMediaPayload(vh)
 		if kind == mediaPayloadAppData {
 			media, ok := audioReceivers.UnprotectAppData(pkt)
@@ -974,6 +937,7 @@ func (e *engine) runMedia(ctx context.Context, callID string, call *Call, callKe
 				e.c.diag.Emit("app_data", map[string]any{"event": "unprotect_failed", "ssrc": vh.Ssrc, "seq": vh.SequenceNumber})
 				continue
 			}
+			duplicates.mark(rtpSSRC, rtpSeq)
 			receiver := appDataReceivers[media.receiver]
 			if receiver == nil {
 				receiver = &appDataReceiver{}
@@ -1014,6 +978,7 @@ func (e *engine) runMedia(ctx context.Context, callID string, call *Call, callKe
 				e.c.diag.Emit("video", map[string]any{"event": "unprotect_failed", "ssrc": vh.Ssrc, "seq": vh.SequenceNumber})
 				continue
 			}
+			duplicates.mark(rtpSSRC, rtpSeq)
 			vh = media.Header
 			videoState := videoReceiveStates[media.receiver]
 			if videoState == nil {
@@ -1060,7 +1025,8 @@ func (e *engine) runMedia(ctx context.Context, callID string, call *Call, callKe
 			if recoveryNeeded && shouldSendVideoPLI(lastVideoPLI, vh.Ssrc, time.Now()) {
 				packet, feedbackErr := videoRtcp.pictureLossIndication(vh.Ssrc)
 				if feedbackErr == nil {
-					_, feedbackErr = ch.Send(packet)
+					// Source of truth: https://github.com/Hellysonrp/meowcaller/blob/3c3a9e04ec5b78165c1cf5ceedbe7335ca304fab/datasheets/multi-relay.md#L33
+					_, feedbackErr = relays.Send(packet)
 				}
 				if feedbackErr != nil {
 					log.Warn().Err(feedbackErr).Uint32("ssrc", vh.Ssrc).Msg("failed to request video keyframe after RTP loss")
@@ -1126,6 +1092,11 @@ func (e *engine) runMedia(ctx context.Context, callID string, call *Call, callKe
 			}
 			e.c.diag.Emit("srtp", map[string]any{"event": "unprotect_failed", "ssrc": vh.Ssrc, "bytes": n})
 			continue
+		}
+		duplicates.mark(rtpSSRC, rtpSeq)
+		// Source of truth: https://github.com/Hellysonrp/meowcaller/blob/3c3a9e04ec5b78165c1cf5ceedbe7335ca304fab/datasheets/multi-relay.md#L33
+		if relays.follow(conn) {
+			log.Info().Str("relay_name", conn.name).Msg("sending media on the relay the peer's audio arrives on")
 		}
 		audioReception.Observe(audio.SSRC, vh.SequenceNumber, audio.Timestamp, uint64(time.Now().UnixMilli()), SampleRate)
 		e.c.diag.Emit("rtp", map[string]any{
@@ -1317,7 +1288,7 @@ type videoSender struct {
 	mu               sync.Mutex
 	pipe             *MediaPipeline
 	stream           *rtp.VideoRtpStream
-	ch               *relay.RelayMediaChannel
+	ch               relaySender
 	ssrc             uint32
 	callID           string
 	frame            uint64
@@ -1550,8 +1521,15 @@ func (vs *videoSender) send(au []byte, duration time.Duration) {
 	sent := 0
 	wireBytes := 0
 	for _, pkt := range packets {
+		// Source of truth: https://github.com/Hellysonrp/meowcaller/blob/3c3a9e04ec5b78165c1cf5ceedbe7335ca304fab/datasheets/multi-relay.md#L33
+		// A failed packet costs only that packet: the relay set moves the media to another
+		// connection, and the rest of the access unit follows it.
 		if _, err := vs.ch.Send(pkt); err != nil {
-			return
+			if errors.Is(err, errRelaySetClosed) {
+				return
+			}
+			vs.log.Debug().Err(err).Uint32("ssrc", vs.ssrc).Msg("video RTP send failed; skipping the packet")
+			continue
 		}
 		sent++
 		wireBytes += len(pkt)

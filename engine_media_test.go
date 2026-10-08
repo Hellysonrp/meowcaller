@@ -2,11 +2,14 @@ package meowcaller
 
 import (
 	"bytes"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/rs/zerolog"
 
 	"github.com/purpshell/meowcaller/diag"
 	"github.com/purpshell/meowcaller/rtp"
@@ -109,6 +112,45 @@ func TestVideoSenderStartsAtIDRAndUsesWhatsappHeaders(t *testing.T) {
 	}
 	if !bytes.Equal(reconstructed, idr) {
 		t.Fatalf("reconstructed access unit = %x, want %x", reconstructed, idr)
+	}
+}
+
+// flakySender fails its first Send and keeps every later packet.
+type flakySender struct {
+	calls int
+	sent  [][]byte
+}
+
+func (s *flakySender) Send(data []byte) (int, error) {
+	if s.calls++; s.calls == 1 {
+		return 0, io.ErrClosedPipe
+	}
+	s.sent = append(s.sent, data)
+	return len(data), nil
+}
+
+// One failed packet costs only that packet: the rest of the access unit still goes out.
+func TestVideoSenderSkipsOnlyAFailedPacket(t *testing.T) {
+	pipe, err := NewMediaPipeline(iota32(), "111111111111111:0@lid", "222222222222222:0@lid", 0x55667788, FrameSamples)
+	if err != nil {
+		t.Fatalf("pipe: %v", err)
+	}
+	out := &flakySender{}
+	sender := &videoSender{
+		pipe: pipe, stream: rtp.NewVideoRtpStream(0x55667788, 4500),
+		ch: out, active: true, keyframeRequired: true, log: zerolog.Nop(),
+	}
+	idr := append([]byte{0, 0, 0, 1, 0x65}, bytes.Repeat([]byte{7}, 6000)...)
+	packets := sender.protectAccessUnit(idr, 50*time.Millisecond)
+	if len(packets) < 3 {
+		t.Fatalf("a 6 kB IDR made %d packets, want it fragmented", len(packets))
+	}
+	sender.keyframeRequired = true
+
+	sender.send(idr, 50*time.Millisecond)
+
+	if out.calls != len(packets) || len(out.sent) != len(packets)-1 {
+		t.Fatalf("Send called %d times with %d kept, want %d calls and all but the failed one kept", out.calls, len(out.sent), len(packets))
 	}
 }
 

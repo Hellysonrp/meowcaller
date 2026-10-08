@@ -7,7 +7,7 @@ All notable changes to meowcaller, tracked per module. Format loosely follows
 
 ## [Unreleased]
 
-### engine/multi-relay — `scaffolded`
+### engine/multi-relay — `implemented`
 
 - Added the `UNMAPPED` datasheet: a 1:1 call's media connects to every offered
   relay, receives on all of them, sends on the one the peer's audio arrives on,
@@ -16,6 +16,26 @@ All notable changes to meowcaller, tracked per module. Format loosely follows
   `dialFirst`, `openRelayConn`, `connectRelays`, `rtpDuplicates` and
   `offeredRelayNames`; their tests are wired against in-memory channels and
   loopback relays, and skipped until the bodies land.
+- Implemented the relay set and wired `runMedia` to it: a 1:1 call dials every
+  offered relay on its offered port and 3480 at once, starts on the first
+  connection to open, merges what every connection receives (dropping repeated
+  RTP), sends on the connection the peer's authenticated audio arrives on, and
+  keeps each connection's allocate, ping and binding answers on it; a group call
+  keeps its one connection. `onRelayLatency` answers only the offered relays'
+  probes and sends through `transmitCallNode`.
+- Review fixes: a send while a dial is pending no longer ends the send loops
+  (`errNoRelaySending`); a failed write moves the media to another open
+  connection and costs only that packet, a video access unit included; a group
+  allocate goes on, and pins, the connection to the endpoint it names; the
+  relay-latency answers use the offer's relays (`offerRelayNames`), not a later
+  `<relay>` list; a slow receive loop holds the readers back instead of
+  dropping packets; RTP is marked a duplicate only once it authenticated, with
+  at most 64 streams remembered; two endpoints at one address keep the FNA
+  one; the dial and receive errors keep their causes; the group path opens its
+  connection through `openRelayConn`, replacing `connectAndAllocate`. The
+  twenty-four multi-relay tests and the video sender test pass under `-race`;
+  the `connectRelays` path stays `NOT VALIDATED` until a live incoming call
+  answered seconds after its offer carries audio both ways.
 
 ### engine/immediate-accept — `implemented`
 

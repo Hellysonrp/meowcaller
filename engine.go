@@ -92,6 +92,10 @@ type engineCall struct {
 	// addressChanged reports a change of only the call's stanza address to a media
 	// handoff; nil without one.
 	addressChanged func()
+
+	// offerRelayNames is the relays an incoming offer lists, whose relaylatency probes are
+	// answered; later <relay> lists replace relay, not this.
+	offerRelayNames map[string]bool
 }
 
 // newEngine creates the engine for a Client.
@@ -592,6 +596,8 @@ func (e *engine) onOffer(ev *events.CallOffer) {
 		if !m.relay.peerJID.IsEmpty() {
 			m.peerLID = m.relay.peerJID.String()
 		}
+		// Source of truth: https://github.com/Hellysonrp/meowcaller/blob/3c3a9e04ec5b78165c1cf5ceedbe7335ca304fab/datasheets/multi-relay.md#L36
+		m.offerRelayNames = offeredRelayNames(m.relay)
 	}
 	e.applyVoipSettingsCodec(m, ev.Data, ev.CallID)
 	e.mu.Unlock()
@@ -910,7 +916,9 @@ func (e *engine) onRelay(callID string, data *waBinary.Node) {
 }
 
 // onRelayLatency answers the caller's relaylatency probes (the callee's half of the
-// relay election). It does NOT send the accept — that is deferred until <mute_v2>.
+// relay election), for the relays the offer lists only: the call's media connects to
+// those, and a relay answered for is one the election can pick. It does NOT send the
+// accept — that is deferred until <mute_v2>.
 func (e *engine) onRelayLatency(ev *events.CallRelayLatency) {
 	m := e.lookup(ev.CallID)
 	if m == nil || m.direction != CallDirectionIncoming {
@@ -920,6 +928,10 @@ func (e *engine) onRelayLatency(ev *events.CallRelayLatency) {
 	if rl == nil {
 		return
 	}
+	// Source of truth: https://github.com/Hellysonrp/meowcaller/blob/3c3a9e04ec5b78165c1cf5ceedbe7335ca304fab/datasheets/multi-relay.md#L36
+	e.mu.Lock()
+	offered := m.offerRelayNames
+	e.mu.Unlock()
 	var probes []rlProbe
 	for i := range rl.GetChildren() {
 		te := &rl.GetChildren()[i]
@@ -927,9 +939,14 @@ func (e *engine) onRelayLatency(ev *events.CallRelayLatency) {
 			continue
 		}
 		ag := te.AttrGetter()
+		name := ag.String("relay_name")
+		if !offered[name] {
+			e.c.log.Debug().Str("call_id", ev.CallID).Str("relay_name", name).Msg("relaylatency probe for a relay outside the offer left unanswered")
+			continue
+		}
 		probes = append(probes, rlProbe{
 			latency:   decodeLatency(ag.String("latency")),
-			relayName: ag.String("relay_name"),
+			relayName: name,
 			addr:      nodeBytes(te),
 		})
 	}
@@ -942,8 +959,8 @@ func (e *engine) onRelayLatency(ev *events.CallRelayLatency) {
 			RelayName:    p.relayName,
 			AddressBytes: p.addr,
 		})
-		resp.Attrs["id"] = e.c.wa.GenerateMessageID()
-		if err := e.c.wa.DangerousInternals().SendNode(context.Background(), resp); err != nil {
+		resp.Attrs["id"] = e.nextCallNodeID()
+		if err := e.transmitCallNode(context.Background(), resp); err != nil {
 			e.c.log.Error().Err(err).Str("call_id", ev.CallID).Msg("send relaylatency failed")
 			return
 		}
