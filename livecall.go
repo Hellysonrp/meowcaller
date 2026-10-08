@@ -276,7 +276,9 @@ func (c *Call) IsReceivingVideo() bool {
 }
 
 // Answer accepts an inbound call (preaccept + accept) and brings media up. No-op error
-// if the call is not in a ringing state.
+// if the call is not in a ringing state. On a Client built WithImmediateAccept a 1:1
+// call's accept is sent from Answer, and Answer returns its send error, leaving the call
+// ringing.
 func (c *Call) Answer() error { return c.eng.answer(c) }
 
 // Reject declines an inbound call.

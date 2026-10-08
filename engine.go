@@ -76,8 +76,10 @@ type engineCall struct {
 	inviteSelfDevice  groupCallDevice
 	invitePeerDevice  groupCallDevice
 
-	// The callee <accept> is deferred until the caller's <mute_v2> arrives.
+	// The callee <accept> is deferred until the caller's <mute_v2> arrives. A Client built
+	// WithImmediateAccept never sets it: answerAtOnce claims its accept with acceptSending.
 	acceptPending bool
+	acceptSending bool
 
 	earlyMuteSeen    bool
 	earlyMuteFrom    types.JID
@@ -694,7 +696,8 @@ func (e *engine) sendPreaccept(callID string, to, creator types.JID, video bool)
 // answer accepts an inbound call: it marks the call to accept (the actual <accept> is
 // deferred until the caller's <mute_v2>, which onCallRaw fires) and brings media up. The
 // <preaccept> was already sent eagerly when the offer arrived, so Answer only commits to
-// the call. Media comes up once callKey+relay are both known.
+// the call. Media comes up once callKey+relay are both known. A Client built
+// WithImmediateAccept answers a 1:1 call with answerAtOnce instead.
 func (e *engine) answer(c *Call) error {
 	m := e.lookup(c.id)
 	if m == nil {
@@ -714,6 +717,10 @@ func (e *engine) answer(c *Call) error {
 		c.setPhase(CallPhaseConnecting)
 		e.maybeStartMedia(c.id)
 		return nil
+	}
+	// Source of truth: https://github.com/Hellysonrp/meowcaller/blob/a841a18ea50ccbd1a14212ca5d481dc22c54c007/datasheets/immediate-accept.md#L21-L23
+	if e.c.immediateAccept {
+		return e.answerAtOnce(c)
 	}
 	c.setPhase(CallPhaseConnecting)
 	e.mu.Lock()
@@ -736,8 +743,71 @@ func (e *engine) answer(c *Call) error {
 	return nil
 }
 
-// sendAccept sends the deferred callee <accept> (once), in the WA-Web format (metadata +
-// single rate — the peer keeps the call alive with this; capability+both-rates fails).
+// answerAtOnce answers a 1:1 incoming call by sending its accept now, to the offer's sender
+// (or to an early mute_v2's). The accept is claimed under the engine lock and the call
+// counts as answered only once it went out, so a mute_v2 meanwhile is recorded like any
+// early one and sends nothing, and a failed send leaves the call ringing for another
+// Answer. Once the accept went out, a repeated Answer does nothing.
+func (e *engine) answerAtOnce(c *Call) error {
+	// Source of truth: https://github.com/Hellysonrp/meowcaller/blob/a841a18ea50ccbd1a14212ca5d481dc22c54c007/datasheets/immediate-accept.md#L21-L24
+	e.mu.Lock()
+	m := e.calls[c.id]
+	switch {
+	case m == nil:
+		e.mu.Unlock()
+		return fmt.Errorf("meowcaller: unknown call %s", c.id)
+	case m.direction != CallDirectionIncoming:
+		e.mu.Unlock()
+		return fmt.Errorf("meowcaller: call %s is not an incoming call", c.id)
+	case m.answered:
+		e.mu.Unlock()
+		return nil
+	case m.acceptSending:
+		e.mu.Unlock()
+		return fmt.Errorf("meowcaller: call %s is already being answered", c.id)
+	}
+	m.acceptSending = true
+	to, creator := m.from, m.creator
+	if m.earlyMuteSeen {
+		to, creator = m.earlyMuteFrom, m.earlyMuteCreator
+	}
+	video := m.localVideo || m.remoteVideo
+	e.mu.Unlock()
+
+	if err := e.transmitAccept(c.id, to, creator, video); err != nil {
+		e.mu.Lock()
+		m.acceptSending = false
+		e.mu.Unlock()
+		return err
+	}
+	e.mu.Lock()
+	current := e.calls[c.id] == m
+	e.mu.Unlock()
+	if !current {
+		return fmt.Errorf("meowcaller: call %s ended while it was being answered", c.id)
+	}
+	// Source of truth: https://github.com/Hellysonrp/meowcaller/blob/583935a75c2b46fc4d57ec72d391ebedaf7b3600/datasheets/accept-sent.md#L17-L18
+	c.markAcceptSent()
+	c.setPhase(CallPhaseConnecting)
+	// Answered and the first inbound RTP are decided under the engine lock, as in answer:
+	// whichever of them comes second makes the call active.
+	e.mu.Lock()
+	m.acceptSending = false
+	m.answered = true
+	inbound := m.inboundSeen
+	e.mu.Unlock()
+
+	e.maybeStartMedia(c.id)
+	if inbound {
+		c.setPhase(CallPhaseActive)
+		if fn := c.onReadyFn(); fn != nil {
+			fn()
+		}
+	}
+	return nil
+}
+
+// sendAccept sends the deferred callee <accept> (once).
 func (e *engine) sendAccept(callID string, to, creator types.JID) {
 	e.mu.Lock()
 	m := e.calls[callID]
@@ -751,11 +821,25 @@ func (e *engine) sendAccept(callID string, to, creator types.JID) {
 	call := m.call
 	e.mu.Unlock()
 
+	if err := e.transmitAccept(callID, to, creator, isVideo); err != nil {
+		e.c.log.Error().Err(err).Str("call_id", callID).Msg("send accept failed")
+		return
+	}
+	// Source of truth: https://github.com/Hellysonrp/meowcaller/blob/583935a75c2b46fc4d57ec72d391ebedaf7b3600/datasheets/accept-sent.md#L17-L18
+	if call != nil {
+		call.markAcceptSent()
+	}
+}
+
+// transmitAccept builds and sends a callee <accept> in the WA-Web format (metadata +
+// single rate — the peer keeps the call alive with this; capability+both-rates fails).
+func (e *engine) transmitAccept(callID string, to, creator types.JID, video bool) error {
+	// Source of truth: https://github.com/Hellysonrp/meowcaller/blob/a841a18ea50ccbd1a14212ca5d481dc22c54c007/datasheets/immediate-accept.md#L21
 	accept := signaling.BuildAccept(&signaling.AcceptParams{
 		CallID: callID, To: to, CallCreator: creator,
 		AudioRates: []string{"16000"},
 		Metadata:   waBinary.Attrs{"peer_abtest_bucket_id_list": "125208,94276"},
-		Video:      isVideo,
+		Video:      video,
 	})
 	// Source of truth: https://github.com/Hellysonrp/meowcaller/blob/583935a75c2b46fc4d57ec72d391ebedaf7b3600/datasheets/accept-sent.md#L18-L19
 	requestID := e.nextCallNodeID()
@@ -764,14 +848,10 @@ func (e *engine) sendAccept(callID string, to, creator types.JID) {
 	}
 	accept.Attrs["id"] = requestID
 	if err := e.transmitCallNode(context.Background(), accept); err != nil {
-		e.c.log.Error().Err(err).Str("call_id", callID).Msg("send accept failed")
-		return
+		return fmt.Errorf("meowcaller: send accept: %w", err)
 	}
-	e.c.log.Info().Str("call_id", callID).Bool("video", isVideo).Msg("accepted (after mute_v2)")
-	// Source of truth: https://github.com/Hellysonrp/meowcaller/blob/583935a75c2b46fc4d57ec72d391ebedaf7b3600/datasheets/accept-sent.md#L17-L18
-	if call != nil {
-		call.markAcceptSent()
-	}
+	e.c.log.Info().Str("call_id", callID).Bool("video", video).Msg("accept sent")
+	return nil
 }
 
 // reject declines an inbound call.

@@ -61,7 +61,9 @@ func NewClient(wa *whatsmeow.Client, opts ...Option) *Client {
 		wa: wa, log: cfg.log, diag: cfg.diag, mediaHandoff: cfg.mediaHandoff,
 		// Source of truth: https://github.com/Hellysonrp/meowcaller/blob/c94a2d54a5179636eff02b57575f2ee8e8372cf6/datasheets/relay-timeout.md#L21
 		relayTimeout: cfg.relayTimeout,
-		getGroupInfo: wa.GetGroupInfo,
+		// Source of truth: https://github.com/Hellysonrp/meowcaller/blob/a841a18ea50ccbd1a14212ca5d481dc22c54c007/datasheets/immediate-accept.md#L21
+		immediateAccept: cfg.immediateAccept,
+		getGroupInfo:    wa.GetGroupInfo,
 		ownGroupJIDs: func() []types.JID {
 			return []types.JID{wa.Store.GetJID(), wa.Store.GetLID()}
 		},
