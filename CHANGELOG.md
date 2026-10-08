@@ -7,11 +7,15 @@ All notable changes to meowcaller, tracked per module. Format loosely follows
 
 ## [Unreleased]
 
-### engine/multi-relay — `planned`
+### engine/multi-relay — `scaffolded`
 
 - Added the `UNMAPPED` datasheet: a 1:1 call's media connects to every offered
   relay, receives on all of them, sends on the one the peer's audio arrives on,
   and the callee answers relay-latency probes only for the offered relays.
+- Scaffolded `relaySet`, `relayConn`, `relayChannel`, `relayDialAddresses`,
+  `dialFirst`, `openRelayConn`, `connectRelays`, `rtpDuplicates` and
+  `offeredRelayNames`; their tests are wired against in-memory channels and
+  loopback relays, and skipped until the bodies land.
 
 ### engine/immediate-accept — `implemented`
 
