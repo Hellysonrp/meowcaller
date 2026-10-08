@@ -7,6 +7,12 @@ All notable changes to meowcaller, tracked per module. Format loosely follows
 
 ## [Unreleased]
 
+### engine/immediate-accept — `planned`
+
+- Added the `UNMAPPED` datasheet: a `Client` built with `WithImmediateAccept`
+  sends a 1:1 incoming call's accept from `Answer` instead of on the caller's
+  first `mute_v2`.
+
 ### engine/sending-held — `implemented`
 
 - Added the `UNMAPPED` datasheet: `RunMedia` with `WithSendingHeld` brings the
