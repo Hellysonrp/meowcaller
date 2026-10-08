@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync/atomic"
 
 	"go.mau.fi/whatsmeow/types"
 )
@@ -17,6 +18,7 @@ type MediaCall struct {
 	cancel context.CancelFunc
 	done   chan struct{}
 	err    error
+	held   *atomic.Bool
 }
 
 // RunMedia starts a handed-off session's media with no WhatsApp client: the relay
@@ -47,6 +49,12 @@ func RunMedia(ctx context.Context, session MediaSession, opts ...Option) (*Media
 	call := &Call{eng: e, id: session.CallID, peer: peer, phase: CallPhaseConnecting}
 	rd := session.Relay.relayData()
 	mctx, cancel := context.WithCancel(ctx)
+	// Source of truth: https://github.com/Hellysonrp/meowcaller/blob/3d49711d486ddb54af1c918043f93940061787bb/datasheets/sending-held.md#L20
+	var held *atomic.Bool
+	if cfg.sendingHeld {
+		held = &atomic.Bool{}
+		held.Store(true)
+	}
 	e.calls[session.CallID] = &engineCall{
 		call:      call,
 		callKey:   bytes.Clone(session.CallKey),
@@ -58,11 +66,13 @@ func RunMedia(ctx context.Context, session MediaSession, opts ...Option) (*Media
 		answered:  true,
 		started:   true,
 		cancel:    cancel,
+		sendHeld:  held,
 	}
-	mc := &MediaCall{eng: e, call: call, cancel: cancel, done: make(chan struct{})}
+	mc := &MediaCall{eng: e, call: call, cancel: cancel, done: make(chan struct{}), held: held}
 	runKey := bytes.Clone(session.CallKey)
 	inbound := session.Direction == CallDirectionIncoming
-	c.log.Info().Str("call_id", session.CallID).Int("relay_endpoints", len(rd.endpoints)).Msg("starting handed-off media")
+	c.log.Info().Str("call_id", session.CallID).Int("relay_endpoints", len(rd.endpoints)).
+		Bool("sending_held", held != nil).Msg("starting handed-off media")
 
 	// Source of truth: https://github.com/Hellysonrp/meowcaller/blob/9259460582560c1dcc6da66ec9c94abc15c71b70/datasheets/media-handoff.md#L43
 	go func() {
@@ -139,9 +149,9 @@ func (c *MediaCall) Rekey(peerLID string) error {
 // It does nothing for media run without the hold, and on a repeated call.
 func (c *MediaCall) StartSending() {
 	// Source of truth: https://github.com/Hellysonrp/meowcaller/blob/3d49711d486ddb54af1c918043f93940061787bb/datasheets/sending-held.md#L21-L22
-	// TODO
-	// agent suggestion: read the call's sendHeld under the engine lock and store false in it; a nil flag (no hold) or a repeated call changes nothing.
-	// human input:
+	if c.held != nil && c.held.CompareAndSwap(true, false) {
+		c.eng.c.log.Info().Str("call_id", c.call.id).Msg("handed-off media sending started")
+	}
 }
 
 // Stop ends the call's media. Done closes once the media loop has exited.

@@ -2,15 +2,11 @@ package meowcaller
 
 import (
 	"context"
+	"errors"
 	"sync/atomic"
 	"testing"
 	"time"
 )
-
-func skipSendingHeldStub(t *testing.T) {
-	t.Helper()
-	t.Skip("blocked: engine/sending-held is a stub; enable when implemented")
-}
 
 // relayPackets counts what a loopback relay reads: media (RTP and SRTCP, version 2) and
 // everything else (the allocate and the pings).
@@ -37,6 +33,24 @@ func waitForMedia(t *testing.T, packets *relayPackets) {
 	}
 }
 
+// waitForRelayLeg waits for the relay to read the allocate, failing if the media ends
+// first.
+func waitForRelayLeg(t *testing.T, mc *MediaCall, packets *relayPackets) {
+	t.Helper()
+	deadline := time.Now().Add(3 * time.Second)
+	for packets.other.Load() == 0 {
+		select {
+		case <-mc.Done():
+			t.Fatalf("the media ended before the relay leg came up: %v", mc.Err())
+		default:
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the relay leg did not come up")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
 func runRecordedMedia(t *testing.T, opts ...Option) (*MediaCall, *relayPackets) {
 	t.Helper()
 	packets := &relayPackets{}
@@ -50,7 +64,6 @@ func runRecordedMedia(t *testing.T, opts ...Option) (*MediaCall, *relayPackets) 
 }
 
 func TestSendingIsHeld(t *testing.T) {
-	skipSendingHeldStub(t)
 	if sendingIsHeld(nil) {
 		t.Fatal("a nil flag holds the sending")
 	}
@@ -66,7 +79,6 @@ func TestSendingIsHeld(t *testing.T) {
 }
 
 func TestWithSendingHeldReachesRunMedia(t *testing.T) {
-	skipSendingHeldStub(t)
 	mc, err := RunMedia(context.Background(), silentRelaySession(t), WithSendingHeld())
 	if err != nil {
 		t.Fatalf("RunMedia: %v", err)
@@ -82,15 +94,65 @@ func TestWithSendingHeldReachesRunMedia(t *testing.T) {
 }
 
 func TestRunMediaWithSendingHeldSendsNoMedia(t *testing.T) {
-	skipSendingHeldStub(t)
-	_, packets := runRecordedMedia(t, WithSendingHeld())
+	mc, packets := runRecordedMedia(t, WithSendingHeld())
+	waitForRelayLeg(t, mc, packets)
 
-	// The keepalive runs every second and the SRTCP reports every 1.5 s: past 2 s both
-	// have had their turn.
+	// From the allocate on, the keepalive runs every second and the SRTCP reports every
+	// 1.5 s: past 2 s both have had their turn.
 	time.Sleep(2 * time.Second)
 
-	if packets.other.Load() == 0 {
-		t.Fatal("the relay leg did not come up")
+	if n := packets.media.Load(); n != 0 {
+		t.Fatalf("%d media packets reached the relay while the sending was held", n)
+	}
+}
+
+func TestAHeldCallRefusesAReaction(t *testing.T) {
+	mc, packets := runRecordedMedia(t, WithSendingHeld())
+	waitForRelayLeg(t, mc, packets)
+
+	if err := mc.call.SendReaction("x"); !errors.Is(err, errSendingHeld) {
+		t.Fatalf("SendReaction = %v, want errSendingHeld", err)
+	}
+	if n := packets.media.Load(); n != 0 {
+		t.Fatalf("%d media packets reached the relay while the sending was held", n)
+	}
+}
+
+func TestAHeldCallRefusesVideo(t *testing.T) {
+	mc, packets := runRecordedMedia(t, WithSendingHeld())
+	waitForRelayLeg(t, mc, packets)
+
+	if err := mc.call.SendVideo([]byte{0, 0, 0, 1, 0x65, 0x88}); !errors.Is(err, errSendingHeld) {
+		t.Fatalf("SendVideo = %v, want errSendingHeld", err)
+	}
+	if n := packets.media.Load(); n != 0 {
+		t.Fatalf("%d media packets reached the relay while the sending was held", n)
+	}
+}
+
+// countingSource is an AudioSource of silence that counts the frames read from it.
+type countingSource struct{ reads atomic.Int64 }
+
+func (s *countingSource) ReadFrame() ([]float32, error) {
+	s.reads.Add(1)
+	return make([]float32, FrameSamples), nil
+}
+
+func (s *countingSource) Close() error { return nil }
+
+// A held call keeps pulling its Player's frames, so a live source does not back up into
+// latency for when the sending starts.
+func TestAHeldCallDrainsItsPlayer(t *testing.T) {
+	mc, packets := runRecordedMedia(t, WithSendingHeld())
+	source := &countingSource{}
+	mc.Play(source)
+
+	deadline := time.Now().Add(3 * time.Second)
+	for source.reads.Load() < 3 {
+		if time.Now().After(deadline) {
+			t.Fatalf("%d frames read from the player while held, want at least 3", source.reads.Load())
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 	if n := packets.media.Load(); n != 0 {
 		t.Fatalf("%d media packets reached the relay while the sending was held", n)
@@ -98,7 +160,6 @@ func TestRunMediaWithSendingHeldSendsNoMedia(t *testing.T) {
 }
 
 func TestStartSendingStartsTheMedia(t *testing.T) {
-	skipSendingHeldStub(t)
 	mc, packets := runRecordedMedia(t, WithSendingHeld())
 	time.Sleep(200 * time.Millisecond)
 
@@ -108,7 +169,6 @@ func TestStartSendingStartsTheMedia(t *testing.T) {
 }
 
 func TestStartSendingTwiceKeepsSending(t *testing.T) {
-	skipSendingHeldStub(t)
 	mc, packets := runRecordedMedia(t, WithSendingHeld())
 
 	mc.StartSending()
@@ -118,7 +178,6 @@ func TestStartSendingTwiceKeepsSending(t *testing.T) {
 }
 
 func TestStartSendingWithoutTheHoldChangesNothing(t *testing.T) {
-	skipSendingHeldStub(t)
 	mc, packets := runRecordedMedia(t)
 
 	mc.StartSending()

@@ -284,9 +284,12 @@ func (e *engine) runMedia(ctx context.Context, callID string, call *Call, callKe
 	m := e.calls[callID]
 	audioReceivers := (*participantReceiveRegistry)(nil)
 	var groupMode atomic.Bool
+	// Source of truth: https://github.com/Hellysonrp/meowcaller/blob/3d49711d486ddb54af1c918043f93940061787bb/datasheets/sending-held.md#L20
+	var sendHeld *atomic.Bool
 	if m != nil {
 		audioReceivers = m.groupReceivers
 		groupMode.Store(m.group)
+		sendHeld = m.sendHeld
 	}
 	e.mu.Unlock()
 	if audioReceivers == nil {
@@ -590,7 +593,8 @@ func (e *engine) runMedia(ctx context.Context, callID string, call *Call, callKe
 	// Send loop: frame-paced from connect, NOT gated on the Player. WhatsApp starts media
 	// on relay connection and the relay learns our SSRC from our FIRST RTP — it won't
 	// bridge the peer's media until it sees our stream. So we send silence frames until the
-	// Player has real audio (nextFrame() == nil means send silence).
+	// Player has real audio (nextFrame() == nil means send silence). While the sending is
+	// held nothing is sent, and the Player's frames are pulled and dropped.
 	frameInterval := time.Duration(FrameSamples) * time.Second / SampleRate
 	go func() {
 		silence := make([]float32, FrameSamples)
@@ -602,6 +606,14 @@ func (e *engine) runMedia(ctx context.Context, callID string, call *Call, callKe
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
+			}
+			// Source of truth: https://github.com/Hellysonrp/meowcaller/blob/3d49711d486ddb54af1c918043f93940061787bb/datasheets/sending-held.md#L20-L21
+			// NOT VALIDATED: validated once a live incoming call answered seconds after its offer carries audio both ways.
+			if sendingIsHeld(sendHeld) {
+				if player, _ := callPlayerSink(call); player != nil {
+					player.nextFrame()
+				}
+				continue
 			}
 			frame := silence
 			if player, _ := callPlayerSink(call); player != nil {
@@ -684,10 +696,12 @@ func (e *engine) runMedia(ctx context.Context, callID string, call *Call, callKe
 	if err = audioReceivers.attachSRTCPSender(videoRtcp); err != nil {
 		return fmt.Errorf("attach video SRTCP sender: %w", err)
 	}
+	// Source of truth: https://github.com/Hellysonrp/meowcaller/blob/3d49711d486ddb54af1c918043f93940061787bb/datasheets/sending-held.md#L20
 	vsender := &videoSender{
 		pipe: txVideoPipe, stream: rtp.NewVideoRtpStream(videoSelfSsrc, defaultVideoRtpStepSamples),
 		ch: ch, ssrc: videoSelfSsrc, callID: callID, keyframeRequired: true,
-		log: log, diag: e.c.diag,
+		sendHeld: sendHeld,
+		log:      log, diag: e.c.diag,
 	}
 	txAppDataPipe, err := NewMediaPipeline(callKey, selfLID, peerLID, appDataSelfSsrc, FrameSamples, WithLogger(log))
 	if err != nil {
@@ -778,6 +792,10 @@ func (e *engine) runMedia(ctx context.Context, callID string, call *Call, callKe
 			case <-ctx.Done():
 				return
 			case now := <-ticker.C:
+				// Source of truth: https://github.com/Hellysonrp/meowcaller/blob/3d49711d486ddb54af1c918043f93940061787bb/datasheets/sending-held.md#L20
+				if sendingIsHeld(sendHeld) {
+					continue
+				}
 				nowMs := uint64(now.UnixMilli())
 				e.mu.Lock()
 				current := e.calls[callID]
@@ -1057,7 +1075,8 @@ func (e *engine) runMedia(ctx context.Context, callID string, call *Call, callKe
 				vh.Marker,
 				media.Payload,
 			)
-			if recoveryNeeded && shouldSendVideoPLI(lastVideoPLI, vh.Ssrc, time.Now()) {
+			// Source of truth: https://github.com/Hellysonrp/meowcaller/blob/3d49711d486ddb54af1c918043f93940061787bb/datasheets/sending-held.md#L20
+			if recoveryNeeded && !sendingIsHeld(sendHeld) && shouldSendVideoPLI(lastVideoPLI, vh.Ssrc, time.Now()) {
 				packet, feedbackErr := videoRtcp.pictureLossIndication(vh.Ssrc)
 				if feedbackErr == nil {
 					_, feedbackErr = ch.Send(packet)
@@ -1325,6 +1344,7 @@ type videoSender struct {
 	active           bool
 	sendGated        bool
 	keyframeRequired bool
+	sendHeld         *atomic.Bool
 	log              zerolog.Logger
 	diag             *diag.Recorder
 }
@@ -1541,6 +1561,10 @@ func (vs *videoSender) send(au []byte, duration time.Duration) {
 	vs.mu.Lock()
 	defer vs.mu.Unlock()
 	if vs.ch == nil {
+		return
+	}
+	// Source of truth: https://github.com/Hellysonrp/meowcaller/blob/3d49711d486ddb54af1c918043f93940061787bb/datasheets/sending-held.md#L20
+	if sendingIsHeld(vs.sendHeld) {
 		return
 	}
 	packets := vs.protectAccessUnitLocked(au, duration)

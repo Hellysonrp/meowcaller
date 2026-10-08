@@ -34,19 +34,23 @@ package meowcaller
 func WithSendingHeld() Option
 func (c *MediaCall) StartSending()
 func sendingIsHeld(held *atomic.Bool) bool
+var errSendingHeld = errors.New("meowcaller: the call's sending is held")
 ```
 
-`RunMedia` sets `engineCall.sendHeld`, holding, when its options carry `WithSendingHeld`;
-`runMedia` reads it once at its start. While it holds, these sends are skipped: the audio
-send loop's RTP, the periodic audio and video SRTCP reports, the video PLI feedback, the
-video sender, and the app-data sender. These sends are never held: the allocate (the
-initial one, the keepalive, and a group allocation), the initial and keepalive pings,
-and the binding-success responses.
+`RunMedia` sets `engineCall.sendHeld`, holding, when its options carry `WithSendingHeld`,
+and keeps the same flag on its `MediaCall`; `runMedia` reads it once at its start. While
+it holds, these sends are skipped: the audio send loop's RTP, the periodic audio and
+video SRTCP reports, and the video PLI feedback. A reaction or a video frame sent while
+held is refused with `errSendingHeld` before anything about its stream advances. These
+sends are never held: the allocate (the initial one, the keepalive, and a group
+allocation), the initial and keepalive pings, and the binding-success responses.
 
 ## Implementation suggestions (guidance, not authoritative)
 
 - Skip a held audio frame before it is encoded and protected, so the RTP sequence,
-  timestamp and sender statistics start with the first frame actually sent.
+  timestamp and sender statistics start with the first frame actually sent; still pull
+  the Player's frame and drop it, so a live source does not back up into latency for
+  when the sending starts.
 - Skip a whole SRTCP tick while held: a sender report for a stream with nothing sent
   carries no information the peer needs.
 - `StartSending` stores false; a second store changes nothing.
