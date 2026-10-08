@@ -7,11 +7,14 @@ All notable changes to meowcaller, tracked per module. Format loosely follows
 
 ## [Unreleased]
 
-### engine/immediate-accept — `planned`
+### engine/immediate-accept — `scaffolded`
 
 - Added the `UNMAPPED` datasheet: a `Client` built with `WithImmediateAccept`
   sends a 1:1 incoming call's accept from `Answer` instead of on the caller's
   first `mute_v2`.
+- Scaffolded `WithImmediateAccept` and the `immediateAccept` fields; its tests
+  are wired and skipped until the bodies land, and
+  `TestWithoutImmediateAcceptAnswerStillWaitsForMuteV2` pins the deferred accept.
 
 ### engine/sending-held — `implemented`
 

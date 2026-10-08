@@ -25,8 +25,9 @@ type Client struct {
 	diag *diag.Recorder
 	eng  *engine
 
-	mediaHandoff MediaHandoff
-	relayTimeout time.Duration
+	mediaHandoff    MediaHandoff
+	relayTimeout    time.Duration
+	immediateAccept bool
 
 	getGroupInfo func(context.Context, types.JID) (*types.GroupInfo, error)
 	ownGroupJIDs func() []types.JID

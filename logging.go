@@ -13,11 +13,12 @@ import (
 type Option func(*config)
 
 type config struct {
-	log          zerolog.Logger
-	diag         *diag.Recorder
-	mediaHandoff MediaHandoff
-	relayTimeout time.Duration
-	sendingHeld  bool
+	log             zerolog.Logger
+	diag            *diag.Recorder
+	mediaHandoff    MediaHandoff
+	relayTimeout    time.Duration
+	sendingHeld     bool
+	immediateAccept bool
 }
 
 func resolveConfig(opts []Option) config {
