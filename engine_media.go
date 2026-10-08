@@ -119,12 +119,13 @@ func (e *engine) maybeStartMedia(callID string) {
 	}()
 }
 
-// runMedia runs the per-frame media loop over the relay DataChannel: the Player's frames
-// (or silence) → MLow → E2E-SRTP protect → DataChannel, and DataChannel → classify →
-// unprotect → MLow decode → the Call's sink. A 1 Hz allocate+ping keepalive holds the
-// relay's consent freshness; the relay's binding-requests are answered with
-// binding-success. The working recipe is preserved exactly: a consent ping (0x0801) goes
-// out with the allocate at t+0, BEFORE any RTP; no STUN binding-requests are ever sent.
+// runMedia runs the per-frame media loop over the call's relay connections (a relaySet):
+// the Player's frames (or silence) → MLow → E2E-SRTP protect → the sending connection,
+// and every connection → classify → unprotect → MLow decode → the Call's sink. Each
+// connection's 1 Hz allocate+ping keepalive holds its relay's consent freshness, and the
+// binding-requests a connection receives are answered with binding-success on it. The
+// working recipe is preserved exactly: a consent ping (0x0801) goes out with each
+// connection's allocate at t+0, BEFORE any RTP; no STUN binding-requests are ever sent.
 //
 // NOT VALIDATED: live-relay only.
 func (e *engine) runMedia(ctx context.Context, callID string, call *Call, callKey []byte, selfLID, peerLID string, rd *relayData, inbound bool) error {

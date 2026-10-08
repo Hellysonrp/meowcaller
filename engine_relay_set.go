@@ -79,9 +79,8 @@ type relaySet struct {
 	closeOnce sync.Once
 }
 
-// relaySetBacklog bounds the received packets waiting for the receive loop. A full
-// backlog drops a packet rather than stall a connection's reader: live media recovers on
-// the next frame.
+// relaySetBacklog bounds the received packets waiting for the receive loop. Once it is
+// full, every connection's reader waits for the loop to take one.
 const relaySetBacklog = 256
 
 // relayRecvBufferBytes is a received packet's largest size, as the receive loop reads it.

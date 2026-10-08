@@ -918,7 +918,8 @@ func (e *engine) onRelay(callID string, data *waBinary.Node) {
 // onRelayLatency answers the caller's relaylatency probes (the callee's half of the
 // relay election), for the relays the offer lists only: the call's media connects to
 // those, and a relay answered for is one the election can pick. It does NOT send the
-// accept — that is deferred until <mute_v2>.
+// accept: that goes on the caller's <mute_v2>, or from Answer for a Client built
+// WithImmediateAccept.
 func (e *engine) onRelayLatency(ev *events.CallRelayLatency) {
 	m := e.lookup(ev.CallID)
 	if m == nil || m.direction != CallDirectionIncoming {

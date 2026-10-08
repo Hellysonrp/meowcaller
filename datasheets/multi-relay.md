@@ -117,8 +117,7 @@ peer audio packet. `onRelayLatency` answers only the probes whose `relay_name` i
 - `dialFirst` runs `relay.ConnectRelayMedia` on every address `relayDialAddresses`
   gives (the offered address and the same IP at 3480, once when they are the same) at
   once, keeps the first to succeed, closes any later success, and gives up when its
-  context ends; `connectRelays` gives each dial `relayConnectTimeout`, the 12 s
-  `connectAndAllocate` uses.
+  context ends; `connectRelays` gives each dial `relayConnectTimeout` (12 s).
 - A connection that fails while sending hands the media to another open connection; a
   failed write on one connection skips that packet, and only a closed set stops the send
   loops.

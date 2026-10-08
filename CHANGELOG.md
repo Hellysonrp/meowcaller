@@ -36,6 +36,12 @@ All notable changes to meowcaller, tracked per module. Format loosely follows
   twenty-four multi-relay tests and the video sender test pass under `-race`;
   the `connectRelays` path stays `NOT VALIDATED` until a live incoming call
   answered seconds after its offer carries audio both ways.
+- Corrected the comments the relay set left stale: `relaySetBacklog` (a full
+  backlog holds the readers back, it drops nothing), `runMedia` (every relay
+  connection, each with its own keepalive and binding answers),
+  `onRelayLatency` (the accept goes on `mute_v2`, or from `Answer` with
+  `WithImmediateAccept`), and the datasheet's note on `relayConnectTimeout`,
+  which named the removed `connectAndAllocate`.
 
 ### engine/immediate-accept — `implemented`
 
