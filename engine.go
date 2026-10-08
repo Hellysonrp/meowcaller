@@ -11,7 +11,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 	"unsafe"
 
@@ -93,10 +92,6 @@ type engineCall struct {
 	// addressChanged reports a change of only the call's stanza address to a media
 	// handoff; nil without one.
 	addressChanged func()
-
-	// sendHeld holds a handed-off call's media sending while true; nil when RunMedia's
-	// options do not hold it.
-	sendHeld *atomic.Bool
 }
 
 // newEngine creates the engine for a Client.
@@ -204,12 +199,8 @@ func (e *engine) sendReaction(callID, emoji string) error {
 		e.mu.Unlock()
 		return errors.New("meowcaller: call is not active")
 	}
-	sender, held := m.appDataTx, m.sendHeld
+	sender := m.appDataTx
 	e.mu.Unlock()
-	// Source of truth: https://github.com/Hellysonrp/meowcaller/blob/3d49711d486ddb54af1c918043f93940061787bb/datasheets/sending-held.md#L20
-	if sendingIsHeld(held) {
-		return errSendingHeld
-	}
 	if sender == nil {
 		return errAppDataUnavailable
 	}
@@ -271,15 +262,10 @@ func (e *engine) nextCallNodeID() string {
 func (e *engine) sendVideoFrame(callID string, au []byte, duration time.Duration) error {
 	e.mu.Lock()
 	var vs *videoSender
-	var held *atomic.Bool
 	if m := e.calls[callID]; m != nil {
-		vs, held = m.videoTx, m.sendHeld
+		vs = m.videoTx
 	}
 	e.mu.Unlock()
-	// Source of truth: https://github.com/Hellysonrp/meowcaller/blob/3d49711d486ddb54af1c918043f93940061787bb/datasheets/sending-held.md#L20
-	if sendingIsHeld(held) {
-		return errSendingHeld
-	}
 	if vs == nil {
 		return errors.New("meowcaller: call has no active video media")
 	}

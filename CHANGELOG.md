@@ -23,7 +23,7 @@ All notable changes to meowcaller, tracked per module. Format loosely follows
   seconds after the offer and connects its media after the accept is still to
   run.
 
-### engine/sending-held — `implemented`
+### engine/sending-held — removed
 
 - Added the `UNMAPPED` datasheet: `RunMedia` with `WithSendingHeld` brings the
   relay leg up and keeps it alive but sends no media until
@@ -33,10 +33,12 @@ All notable changes to meowcaller, tracked per module. Format loosely follows
   relay that records what it reads, and skipped until the bodies land.
 - Implemented the hold: while held, `runMedia` sends no audio RTP, SRTCP report
   or video PLI and drains the Player's frames, and a reaction or video frame is
-  refused with `errSendingHeld`; `StartSending` releases it once. The ten tests
-  pass against the recording loopback relay. The `runMedia` hold stays
-  `NOT VALIDATED` until a live incoming call answered seconds after its offer
-  carries audio both ways.
+  refused with `errSendingHeld`; `StartSending` releases it once.
+- Removed the module: a live incoming call whose media came up at the offer
+  with its sending held until an answer ten seconds later sent audio but never
+  received the caller's. Its datasheet, option, flag, checks and tests are
+  gone; the recording loopback relay its tests added stays in
+  `media_call_test.go`.
 
 ### engine/relay-timeout — `implemented`
 
