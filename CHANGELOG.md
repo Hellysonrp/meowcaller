@@ -43,6 +43,10 @@ All notable changes to meowcaller, tracked per module. Format loosely follows
   pass, including `TestRunMediaRelayTimeoutEndsSilentConnectedMedia` against a
   loopback relay that never sends. The `runMedia` wiring stays `NOT VALIDATED`
   until a live call whose relay leg is cut ends with `ErrRelayTimeout`.
+- Fixed the flaky `TestRelayWatchdogEndsWithTheMediaLoop`: its loopback relay
+  now hangs up with an SCTP ABORT. A bare close relied on a DTLS close_notify
+  that the client missed in about 4% of runs, so the watchdog fired first. 300
+  solo runs and three full race suites pass.
 
 ### engine/accept-sent — `implemented`
 

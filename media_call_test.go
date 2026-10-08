@@ -119,6 +119,9 @@ func recordingRelaySession(t *testing.T, closeAfter int, onPacket func([]byte)) 
 				close(flowing)
 			}
 			if closeAfter > 0 && read+1 == closeAfter {
+				// An SCTP ABORT reaches the client as data; a bare Close relies on a DTLS
+				// close_notify that the client missed in about 4% of runs.
+				assoc.Abort("relay hung up")
 				return
 			}
 		}
