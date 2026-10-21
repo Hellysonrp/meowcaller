@@ -7,6 +7,12 @@ All notable changes to meowcaller, tracked per module. Format loosely follows
 
 ## [Unreleased]
 
+### engine/silent-sibling-offer — `planned`
+
+- Added the `UNMAPPED` datasheet: an inbound offer that carries `<silence>` and
+  whose roster shows this account already connected is ignored, with no
+  preaccept, no reject, no call entry and no `OnIncomingCall`.
+
 ### engine/multi-relay — `implemented`
 
 - Added the `UNMAPPED` datasheet: a 1:1 call's media connects to every offered
