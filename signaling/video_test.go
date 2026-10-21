@@ -125,6 +125,28 @@ func TestOfferHasVideo(t *testing.T) {
 	}
 }
 
+// TestOfferSilence checks the <silence> child is read with and without a reason.
+func TestOfferSilence(t *testing.T) {
+	t.Skip("blocked: engine/silent-sibling-offer is a stub; enable when implemented")
+	withReason := waBinary.Node{Tag: "offer", Content: []waBinary.Node{
+		{Tag: "audio"}, {Tag: "silence", Attrs: waBinary.Attrs{"reason": "added_for_device_switching"}},
+	}}
+	if reason, silenced := OfferSilence(&withReason); !silenced || reason != "added_for_device_switching" {
+		t.Errorf("OfferSilence(with reason) = (%q, %t), want (\"added_for_device_switching\", true)", reason, silenced)
+	}
+	withoutReason := waBinary.Node{Tag: "offer", Content: []waBinary.Node{{Tag: "silence"}}}
+	if reason, silenced := OfferSilence(&withoutReason); !silenced || reason != "" {
+		t.Errorf("OfferSilence(without reason) = (%q, %t), want (\"\", true)", reason, silenced)
+	}
+	notSilenced := waBinary.Node{Tag: "offer", Content: []waBinary.Node{{Tag: "audio"}, {Tag: "net"}}}
+	if _, silenced := OfferSilence(&notSilenced); silenced {
+		t.Error("OfferSilence(without silence) reports silenced, want not")
+	}
+	if _, silenced := OfferSilence(nil); silenced {
+		t.Error("OfferSilence(nil) reports silenced, want not")
+	}
+}
+
 func TestVideoStateUsesNegotiatedDecoderList(t *testing.T) {
 	peer, creator := peerJID(), creatorJID()
 	call := BuildVideoState("CID", peer, creator, "wrap", VideoStateActive, 0, VideoStateDecH264)

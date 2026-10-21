@@ -7,11 +7,16 @@ All notable changes to meowcaller, tracked per module. Format loosely follows
 
 ## [Unreleased]
 
-### engine/silent-sibling-offer — `planned`
+### engine/silent-sibling-offer — `scaffolded`
 
 - Added the `UNMAPPED` datasheet: an inbound offer that carries `<silence>` and
   whose roster shows this account already connected is ignored, with no
   preaccept, no reject, no call entry and no `OnIncomingCall`.
+- Scaffolded `signaling.OfferSilence` and `ownAccountConnected`; their tests
+  and the ignored-offer test are wired and skipped until the bodies land. Two
+  tests pin that an offer without `<silence>`, and a silent offer whose roster
+  does not show this account connected, are still preaccepted and handed to
+  `OnIncomingCall`.
 
 ### engine/multi-relay — `implemented`
 

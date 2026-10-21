@@ -151,3 +151,13 @@ func OfferHasVideo(offer *waBinary.Node) bool {
 	}
 	return false
 }
+
+// OfferSilence reports the reason of an inbound <offer>'s <silence> child, and whether
+// it has one.
+func OfferSilence(offer *waBinary.Node) (reason string, silenced bool) {
+	// Source of truth: https://github.com/Hellysonrp/meowcaller/blob/8bbcbde18ee9f8125c627fb96f7e451dfb4c69d7/datasheets/silent-sibling-offer.md#L35
+	// TODO
+	// agent suggestion: false for a nil offer; otherwise the first <silence> child's optional "reason" attribute and true, also when it has no reason.
+	// human input:
+	return "", false
+}
