@@ -222,7 +222,8 @@ func remoteGroupCallTargets(
 
 // OnIncomingCall registers the listener fired for each inbound call offer. The handler
 // receives a Call that has not been answered yet; call Answer or Reject on it. Only the
-// most recently registered listener is used.
+// most recently registered listener is used. A silent offer for a call this account is
+// already connected to on another of its devices does not reach it.
 func (c *Client) OnIncomingCall(fn func(*Call)) {
 	c.mu.Lock()
 	c.onIncomingCall = fn

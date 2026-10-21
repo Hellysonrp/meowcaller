@@ -7,7 +7,7 @@ All notable changes to meowcaller, tracked per module. Format loosely follows
 
 ## [Unreleased]
 
-### engine/silent-sibling-offer — `scaffolded`
+### engine/silent-sibling-offer — `implemented`
 
 - Added the `UNMAPPED` datasheet: an inbound offer that carries `<silence>` and
   whose roster shows this account already connected is ignored, with no
@@ -17,6 +17,16 @@ All notable changes to meowcaller, tracked per module. Format loosely follows
   tests pin that an offer without `<silence>`, and a silent offer whose roster
   does not show this account connected, are still preaccepted and handed to
   `OnIncomingCall`.
+- Implemented the check: `OfferSilence` reads the offer's `<silence>` child,
+  `ownAccountConnected` matches a connected roster user's `jid` or `user_pn`
+  against the client's own phone-number JID and LID without the device part,
+  and `onOffer` logs and drops a silent group offer this account is already
+  connected to before `onGroupOffer`; a silent offer it keeps is logged at
+  debug. The `OnIncomingCall` and `onOffer` docs say so. The four silent-offer
+  tests, run on a `NewClient` whose store holds the account's JIDs, and
+  `TestOfferSilence` pass; the drop stays `NOT VALIDATED` until a participant
+  added mid-call, on an account with two linked devices, no longer ends the
+  call.
 
 ### engine/multi-relay — `implemented`
 

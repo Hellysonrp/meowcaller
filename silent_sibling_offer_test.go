@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/purpshell/meowcaller/signaling"
-	"github.com/rs/zerolog"
 	"go.mau.fi/whatsmeow"
 	waBinary "go.mau.fi/whatsmeow/binary"
 	"go.mau.fi/whatsmeow/store"
@@ -16,11 +15,6 @@ import (
 
 const siblingCallID = "SIBLINGCALL"
 
-func skipSilentSiblingOfferStub(t *testing.T) {
-	t.Helper()
-	t.Skip("blocked: engine/silent-sibling-offer is a stub; enable when implemented")
-}
-
 func ownLID() types.JID { return types.JID{User: "111111111111111", Server: types.HiddenUserServer} }
 func ownPN() types.JID  { return types.JID{User: "5500000000001", Server: types.DefaultUserServer} }
 
@@ -29,18 +23,12 @@ func ownDevice(jid types.JID, device uint16) types.JID {
 	return jid
 }
 
-// testEngineForOffers returns an engine whose own account is ownPN and ownLID, seen
-// from device 7, with the nodes it sends and the calls it hands to OnIncomingCall.
+// testEngineForOffers returns the engine of a Client whose store is device 7 of ownPN
+// and ownLID, with the nodes it sends and the calls it hands to OnIncomingCall.
 func testEngineForOffers() (*engine, *[]waBinary.Node, *[]*Call) {
-	client := &Client{
-		wa:  whatsmeow.NewClient(&store.Device{}, waLog.Noop),
-		log: zerolog.Nop(),
-		ownGroupJIDs: func() []types.JID {
-			return []types.JID{ownDevice(ownPN(), 7), ownDevice(ownLID(), 7)}
-		},
-	}
-	eng := newEngine(client)
-	client.eng = eng
+	pn := ownDevice(ownPN(), 7)
+	client := NewClient(whatsmeow.NewClient(&store.Device{ID: &pn, LID: ownDevice(ownLID(), 7)}, waLog.Noop))
+	eng := client.eng
 	var sent []waBinary.Node
 	eng.sendCallNode = func(_ context.Context, node waBinary.Node) error {
 		sent = append(sent, node)
@@ -116,7 +104,6 @@ func requirePreacceptedAndHandedOver(t *testing.T, eng *engine, sent []waBinary.
 }
 
 func TestSilentOfferForACallThisAccountIsConnectedToIsIgnored(t *testing.T) {
-	skipSilentSiblingOfferStub(t)
 	eng, sent, incoming := testEngineForOffers()
 
 	eng.onOffer(siblingOffer("connected", true))
@@ -149,7 +136,6 @@ func TestSilentOfferForACallThisAccountIsNotConnectedToIsStillPreaccepted(t *tes
 }
 
 func TestOwnAccountConnected(t *testing.T) {
-	skipSilentSiblingOfferStub(t)
 	other := peerJID()
 	self := []types.JID{ownDevice(ownPN(), 7), ownDevice(ownLID(), 7)}
 	cases := []struct {

@@ -528,7 +528,8 @@ func (e *engine) placeCall(ctx context.Context, target string, opts CallOptions)
 // onOffer handles an inbound <offer> event: it decrypts the callKey, captures any relay
 // data, registers the Call in the Ringing phase, sends the <preaccept> eagerly (a
 // preparation step, independent of the later Answer/Reject), and fires the
-// OnIncomingCall listener. Only the <accept> is deferred to Answer.
+// OnIncomingCall listener. Only the <accept> is deferred to Answer. A silent offer for a
+// call this account is already connected to on another device is ignored.
 func (e *engine) onOffer(ev *events.CallOffer) {
 	// Source of truth: https://github.com/purpshell/meowcaller/blob/33854919e64bdd4b053054ac9764d8fc63027b57/datasheets/voip-group-invite-accept.md#L28-L40
 	groupSnapshot, isGroup, groupErr := signaling.ParseGroupInviteSnapshot(ev.Data)
@@ -537,6 +538,17 @@ func (e *engine) onOffer(ev *events.CallOffer) {
 		return
 	}
 	if isGroup {
+		// Source of truth: https://github.com/Hellysonrp/meowcaller/blob/8bbcbde18ee9f8125c627fb96f7e451dfb4c69d7/datasheets/silent-sibling-offer.md#L35-L38
+		// NOT VALIDATED: validated once a participant added mid-call, on an account with two linked devices served by meowcaller, no longer ends the call.
+		if reason, silenced := signaling.OfferSilence(ev.Data); silenced {
+			if ownAccountConnected(groupSnapshot.Participants, e.c.groupSelfJIDs()) {
+				e.c.log.Info().Str("call_id", ev.CallID).Str("silence_reason", reason).
+					Msg("ignoring silent offer for a call this account is already connected to")
+				return
+			}
+			e.c.log.Debug().Str("call_id", ev.CallID).Str("silence_reason", reason).
+				Msg("handling silent offer; the roster does not show this account connected")
+		}
 		e.onGroupOffer(ev, groupCallUpdateFromSignaling(*groupSnapshot))
 		return
 	}

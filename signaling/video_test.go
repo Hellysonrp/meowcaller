@@ -127,7 +127,6 @@ func TestOfferHasVideo(t *testing.T) {
 
 // TestOfferSilence checks the <silence> child is read with and without a reason.
 func TestOfferSilence(t *testing.T) {
-	t.Skip("blocked: engine/silent-sibling-offer is a stub; enable when implemented")
 	withReason := waBinary.Node{Tag: "offer", Content: []waBinary.Node{
 		{Tag: "audio"}, {Tag: "silence", Attrs: waBinary.Attrs{"reason": "added_for_device_switching"}},
 	}}
