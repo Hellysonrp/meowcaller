@@ -89,6 +89,12 @@ type engineCall struct {
 	// preAccepted holds every callee device that preaccepted an outgoing call.
 	preAccepted map[types.JID]struct{}
 
+	// ringDevices holds every device an outgoing 1:1 offer rang.
+	ringDevices []types.JID
+	// peerAnswered reports that from names the callee device that accepted an outgoing
+	// 1:1 call.
+	peerAnswered bool
+
 	// addressChanged reports a change of only the call's stanza address to a media
 	// handoff; nil without one.
 	addressChanged func()

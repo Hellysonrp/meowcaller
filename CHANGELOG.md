@@ -7,12 +7,17 @@ All notable changes to meowcaller, tracked per module. Format loosely follows
 
 ## [Unreleased]
 
-### engine/terminate-targets — `planned`
+### engine/terminate-targets — `scaffolded`
 
 - Added the datasheet, pinned at whatsapp-rust
   `e634d245f71d66e2ae55f79ef714c4ca01615ed8`: a hangup of an outgoing 1:1 call
   that no device has answered sends one terminate to each device the offer
   rang, instead of a single one to the bare peer.
+- Scaffolded `terminateTargets` and the `ringDevices` and `peerAnswered` call
+  fields. The fan-out tests (every rung device, a lone device, an accept from a
+  companion device, an accept from the primary device, a failed send) are wired
+  and skipped until the body lands; the incoming and group tests, which pin
+  behavior that stays as it is, run and pass.
 
 ### engine/silent-sibling-offer — `implemented`
 
