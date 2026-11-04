@@ -7,6 +7,13 @@ All notable changes to meowcaller, tracked per module. Format loosely follows
 
 ## [Unreleased]
 
+### engine/terminate-targets — `planned`
+
+- Added the datasheet, pinned at whatsapp-rust
+  `e634d245f71d66e2ae55f79ef714c4ca01615ed8`: a hangup of an outgoing 1:1 call
+  that no device has answered sends one terminate to each device the offer
+  rang, instead of a single one to the bare peer.
+
 ### engine/silent-sibling-offer — `implemented`
 
 - Added the `UNMAPPED` datasheet: an inbound offer that carries `<silence>` and
