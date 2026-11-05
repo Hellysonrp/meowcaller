@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -508,6 +509,9 @@ func (e *engine) placeCall(ctx context.Context, target string, opts CallOptions)
 	m.peerLID = peerLID.String()
 	m.creator = self
 	m.from = peerLID
+	// Source of truth: https://github.com/oxidezap/whatsapp-rust/blob/e634d245f71d66e2ae55f79ef714c4ca01615ed8/src/voip/facade.rs#L2035-L2042
+	// NOT VALIDATED: validated once a live outgoing call, cancelled while it rings on a callee with the phone and one more linked device, stops ringing on every device at once.
+	m.ringDevices = slices.Clone(devices)
 	m.direction = CallDirectionOutgoing
 	m.localVideo = opts.Video
 	m.remoteVideo = opts.Video
@@ -880,18 +884,27 @@ func (e *engine) reject(c *Call) error {
 	return nil
 }
 
-// hangup ends a call (either direction) and tears down its media.
+// hangup ends a call (either direction) and tears down its media. An outgoing 1:1 call
+// that no device has answered is terminated on every device its offer rang.
 func (e *engine) hangup(c *Call) error {
-	m := e.lookup(c.id)
-	to, creator := c.peer, c.peer
-	if m != nil {
-		to, creator = m.from, m.creator
-	}
-	term := signaling.BuildTerminate(&signaling.TerminateParams{CallID: c.id, To: to, CallCreator: creator})
-	term.Attrs["id"] = e.nextCallNodeID()
+	// Source of truth: https://github.com/oxidezap/whatsapp-rust/blob/e634d245f71d66e2ae55f79ef714c4ca01615ed8/src/voip/facade.rs#L5166-L5215
+	targets, creator := e.terminateTargets(c)
 	e.finishCall(c.id, "hangup")
-	if err := e.transmitCallNode(context.Background(), term); err != nil {
-		return fmt.Errorf("send terminate: %w", err)
+	e.c.log.Debug().Str("call_id", c.id).Int("targets", len(targets)).Msg("sending terminate")
+	// Source of truth: https://github.com/oxidezap/whatsapp-rust/blob/e634d245f71d66e2ae55f79ef714c4ca01615ed8/src/voip/direct_control.rs#L77-L117
+	var firstErr error
+	for _, to := range targets {
+		term := signaling.BuildTerminate(&signaling.TerminateParams{CallID: c.id, To: to, CallCreator: creator})
+		term.Attrs["id"] = e.nextCallNodeID()
+		if err := e.transmitCallNode(context.Background(), term); err != nil {
+			e.c.log.Warn().Err(err).Str("call_id", c.id).Str("to", to.String()).Msg("send terminate failed")
+			if firstErr == nil {
+				firstErr = err
+			}
+		}
+	}
+	if firstErr != nil {
+		return fmt.Errorf("send terminate: %w", firstErr)
 	}
 	return nil
 }
@@ -1053,6 +1066,8 @@ func (e *engine) onAccept(ev *events.CallAccept) {
 				addressChanged = current.addressChanged
 			}
 			current.from = ev.From
+			// Source of truth: https://github.com/oxidezap/whatsapp-rust/blob/e634d245f71d66e2ae55f79ef714c4ca01615ed8/src/voip/direct_ingress.rs#L319-L327
+			current.peerAnswered = true
 			answeringPeer = preferQualifiedPeer(current.peerLID, ev.From)
 		}
 		if answeringPeer != "" && answeringPeer != current.peerLID {

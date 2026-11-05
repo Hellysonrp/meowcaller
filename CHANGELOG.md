@@ -7,7 +7,7 @@ All notable changes to meowcaller, tracked per module. Format loosely follows
 
 ## [Unreleased]
 
-### engine/terminate-targets — `scaffolded`
+### engine/terminate-targets — `implemented`
 
 - Added the datasheet, pinned at whatsapp-rust
   `e634d245f71d66e2ae55f79ef714c4ca01615ed8`: a hangup of an outgoing 1:1 call
@@ -18,6 +18,18 @@ All notable changes to meowcaller, tracked per module. Format loosely follows
   companion device, an accept from the primary device, a failed send) are wired
   and skipped until the body lands; the incoming and group tests, which pin
   behavior that stays as it is, run and pass.
+- Implemented the fan-out: `placeCall` keeps a copy of the devices its offer
+  rang, `onAccept` marks a 1:1 call answered where it sets `from`, only for a
+  non-empty `from`, and `hangup` takes `terminateTargets`' one snapshot, ends
+  the call locally, then sends one terminate per target and returns the first
+  send error, logging every failed send. `terminateTargets` addresses every
+  rung device while an outgoing 1:1 call is unanswered, and `from` otherwise.
+  The eight terminate tests pass, the empty-`from` accept among them;
+  `placeCall`'s storing of the rung devices, which no test can reach, stays
+  `NOT VALIDATED` until a live outgoing call, cancelled while it rings on a
+  callee with the phone and one more linked device, stops ringing on every
+  device at once. `datasheets/media-handoff.md` now says Hangup
+  addresses each rung device while an outgoing call is still ringing.
 
 ### engine/silent-sibling-offer — `implemented`
 

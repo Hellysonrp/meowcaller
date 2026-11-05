@@ -11,8 +11,6 @@ import (
 	"go.mau.fi/whatsmeow/types/events"
 )
 
-const terminateTargetsBlocked = "blocked: engine/terminate-targets hangup fan-out is a stub; enable when implemented"
-
 var errTestSend = errors.New("network unavailable")
 
 // captureSends makes eng record every call node it sends, failing the sends whose
@@ -76,7 +74,6 @@ func acceptFrom(eng *engine, from types.JID) {
 }
 
 func TestHangupWhileRingingTerminatesEveryRungDevice(t *testing.T) {
-	t.Skip(terminateTargetsBlocked)
 	eng, call := testEngineWithOutgoingCall()
 	eng.calls[call.ID()].ringDevices = []types.JID{peerDevice(0), peerDevice(45)}
 	sent := captureSends(eng)
@@ -89,7 +86,6 @@ func TestHangupWhileRingingTerminatesEveryRungDevice(t *testing.T) {
 }
 
 func TestHangupWhileRingingTerminatesALoneDevice(t *testing.T) {
-	t.Skip(terminateTargetsBlocked)
 	eng, call := testEngineWithOutgoingCall()
 	eng.calls[call.ID()].ringDevices = []types.JID{peerDevice(3)}
 	sent := captureSends(eng)
@@ -102,7 +98,6 @@ func TestHangupWhileRingingTerminatesALoneDevice(t *testing.T) {
 }
 
 func TestHangupAfterCompanionAcceptTerminatesOnlyThatDevice(t *testing.T) {
-	t.Skip(terminateTargetsBlocked)
 	eng, call := testEngineWithOutgoingCall()
 	eng.calls[call.ID()].ringDevices = []types.JID{peerDevice(0), peerDevice(45)}
 	sent := captureSends(eng)
@@ -116,7 +111,6 @@ func TestHangupAfterCompanionAcceptTerminatesOnlyThatDevice(t *testing.T) {
 }
 
 func TestHangupAfterPrimaryAcceptDoesNotFanOut(t *testing.T) {
-	t.Skip(terminateTargetsBlocked)
 	eng, call := testEngineWithOutgoingCall()
 	eng.calls[call.ID()].ringDevices = []types.JID{peerDevice(0), peerDevice(45)}
 	sent := captureSends(eng)
@@ -127,6 +121,19 @@ func TestHangupAfterPrimaryAcceptDoesNotFanOut(t *testing.T) {
 	}
 
 	assertTerminates(t, *sent, creatorJID(), peerJID())
+}
+
+func TestHangupAfterAcceptWithoutFromTerminatesEveryRungDevice(t *testing.T) {
+	eng, call := testEngineWithOutgoingCall()
+	eng.calls[call.ID()].ringDevices = []types.JID{peerDevice(0), peerDevice(45)}
+	sent := captureSends(eng)
+
+	acceptFrom(eng, types.EmptyJID)
+	if err := call.Hangup(); err != nil {
+		t.Fatalf("Hangup: %v", err)
+	}
+
+	assertTerminates(t, *sent, creatorJID(), peerDevice(0), peerDevice(45))
 }
 
 func TestHangupOfIncomingCallTerminatesFrom(t *testing.T) {
@@ -156,7 +163,6 @@ func TestHangupOfGroupCallTerminatesCallScope(t *testing.T) {
 }
 
 func TestHangupWhileRingingKeepsSendingAfterAFailedSend(t *testing.T) {
-	t.Skip(terminateTargetsBlocked)
 	eng, call := testEngineWithOutgoingCall()
 	m := eng.calls[call.ID()]
 	var canceled bool

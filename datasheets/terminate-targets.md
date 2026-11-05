@@ -7,8 +7,9 @@ instead of on the bare peer only, so no callee device keeps ringing after a hang
 two terminates, each to one device, with the call's creator, its own id and no
 `<destination>`; one rung device: one terminate to that device; after an accept from
 device 45: one terminate to it; after an accept from the primary device, whose JID is the
-bare peer LID: one terminate to it and no fan-out; an incoming call and a group call: one
-terminate to `from`, as before; the first send failing: the second still sent, the error
+bare peer LID: one terminate to it and no fan-out; after an accept with an empty `from`:
+one terminate per rung device; an incoming call and a group call: one terminate to
+`from`, as before; the first send failing: the second still sent, the error
 returned and the call ended locally) plus a human-run live outgoing call to a callee with the phone and
 one more linked device, cancelled while it rings: every device stops ringing at once.
 `placeCall`'s storing of the rung devices has no test seam, since it needs a live

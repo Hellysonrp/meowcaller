@@ -36,7 +36,7 @@ a group call under a handoff starts no media
 signaling is unchanged: Answer, Reject, Hangup, OnEnd, and the Ringing, Calling and Connecting phases
 Active and OnReady never fire on the signaling side under a handoff
 the session is plain data: call ID, call key, self and peer LIDs, the address the call's stanzas go to and the call's creator, direction, codec, relay key, relay tokens and relay endpoints
-the address and the creator are the JIDs Hangup and Reject address their stanzas with
+the address and the creator are the JIDs Hangup and Reject address their stanzas with, except that while an outgoing call is still ringing Hangup addresses each device the offer rang
 the session leaves out the relay's peer JID, video state and app-data state, and owns copies of every byte slice
 RunMedia validates the session, then runs it on an engine with no WhatsApp client
 RunMedia ignores the address and the creator
