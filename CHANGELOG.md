@@ -7,6 +7,13 @@ All notable changes to meowcaller, tracked per module. Format loosely follows
 
 ## [Unreleased]
 
+### engine/offer-failed — `implemented`
+
+- `placeCall` ends the call with reason `offer_failed` when sending its offer
+  fails, as `placeGroupCall` already does, so a failed dial no longer leaves
+  its entry in the engine. `NOT VALIDATED` until a live dial whose offer send
+  fails leaves no entry.
+
 ### engine/terminate-targets — `implemented`
 
 - Added the datasheet, pinned at whatsapp-rust

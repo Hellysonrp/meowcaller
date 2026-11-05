@@ -528,6 +528,9 @@ func (e *engine) placeCall(ctx context.Context, target string, opts CallOptions)
 	})
 
 	if err := cli.DangerousInternals().SendNode(ctx, offer); err != nil {
+		// Source of truth: https://github.com/oxidezap/whatsapp-rust/blob/e634d245f71d66e2ae55f79ef714c4ca01615ed8/src/voip/facade.rs#L2116-L2132
+		// NOT VALIDATED: validated once a live dial whose offer send fails leaves no entry in e.calls.
+		e.finishCall(callID, "offer_failed")
 		return nil, fmt.Errorf("send offer: %w", err)
 	}
 	e.c.log.Info().Str("call_id", callID).Bool("video", opts.Video).Msg("offer sent; media starts when the relay endpoint arrives")
